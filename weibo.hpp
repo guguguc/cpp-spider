@@ -7,13 +7,14 @@
 
 class Weibo {
 public:
-  Weibo(std::string text, std::string timestamp, uint64_t id, std::vector<std::string> pics)
-    :text(text), timestamp(timestamp), id(id), pics(pics) {}
+  Weibo(std::string text, std::string timestamp, uint64_t id, std::vector<std::string> pics, std::string video_url = "")
+    :text(text), timestamp(timestamp), id(id), pics(pics), video_url(video_url) {}
   std::string dump();
   std::string text;
   std::string timestamp;
   uint64_t id;
   std::vector<std::string> pics;
+  std::string video_url;
 };
 
 class User {
