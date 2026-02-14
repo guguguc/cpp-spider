@@ -14,5 +14,19 @@ find_package(nlohmann_json)
 find_package(bsoncxx REQUIRED)
 find_package(mongocxx REQUIRED)
 
-add_executable(cpp-spider main.cpp mainwindow.cpp spider.cpp weibo.cpp writer.cpp)
+add_executable(cpp-spider
+  src/main.cpp
+  src/mainwindow.cpp
+  src/spider.cpp
+  src/weibo.cpp
+  src/writer.cpp
+  include/mainwindow.hpp
+  include/spider.hpp
+  include/weibo.hpp
+  include/writer.hpp
+  include/graph_layout.hpp
+)
+
+target_include_directories(cpp-spider PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
+
 target_link_libraries(cpp-spider PRIVATE Qt6::Widgets Qt6::Network Qt6::MultimediaWidgets spdlog::spdlog_header_only httplib::httplib fmt::fmt nlohmann_json::nlohmann_json mongo::mongocxx_shared)
