@@ -18,6 +18,7 @@
 #include <QJsonObject>
 #include <fstream>
 #include <fmt/core.h>
+#include <nlohmann/json.hpp>
 #include <spdlog/spdlog.h>
 
 MainWindow::MainWindow(QWidget* parent)
@@ -39,14 +40,18 @@ MainWindow::MainWindow(QWidget* parent)
     , m_running(false)
     , m_crawlWeibo(true)
     , m_targetUid(6126303533)
-    , m_nodeCount(0)
-    , m_currentTheme(0)
-    , m_videoWidget(nullptr)
-    , m_weiboScroll(nullptr)
-    , m_weiboContainer(nullptr) {
+   , m_nodeCount(0)
+   , m_currentTheme(0)
+   , m_activeDownloads(0)
+   , m_videoWidget(nullptr)
+   , m_weiboScroll(nullptr)
+   , m_weiboContainer(nullptr) {
   m_imageClient = std::make_unique<httplib::Client>("https://weibo.com");
   m_imageClient->set_follow_location(true);
   m_imageClient->set_decompress(true);
+  m_imageClient->set_keep_alive(true);
+  m_imageClient->set_connection_timeout(30, 0);
+  m_imageClient->set_read_timeout(30, 0);
   m_videoPlayer = std::make_unique<QMediaPlayer>();
   initThemes();
   loadConfig();
@@ -470,14 +475,75 @@ void MainWindow::setupUi() {
    picGridLayout->setContentsMargins(16, 16, 16, 16);
    picGridLayout->setSpacing(12);
    
-   m_picTabScroll = picTabScroll;
-   m_picTabContainer = picTabContainer;
-   picTabScroll->setWidget(picTabContainer);
-   picTabLayout->addWidget(picTabScroll);
-   
-   m_tabWidget->addTab(picTabContent, "🖼️ Pictures");
-   
-   mainLayout->addWidget(m_tabWidget, 1);
+    m_picTabScroll = picTabScroll;
+    m_picTabContainer = picTabContainer;
+    picTabScroll->setWidget(picTabContainer);
+    picTabLayout->addWidget(picTabScroll);
+
+    m_tabWidget->addTab(picTabContent, "🖼️ Pictures");
+
+    // All Videos Tab
+    QWidget* videoListTabContent = new QWidget(this);
+    videoListTabContent->setStyleSheet("background: #181825;");
+    QVBoxLayout* videoListTabLayout = new QVBoxLayout(videoListTabContent);
+    videoListTabLayout->setContentsMargins(0, 0, 0, 0);
+    videoListTabLayout->setSpacing(0);
+
+    // Video List Tab Controls
+    QWidget* videoListTabControls = new QWidget(this);
+    videoListTabControls->setStyleSheet("background: #313244; border-radius: 4px;");
+    QHBoxLayout* videoListTabControlsLayout = new QHBoxLayout(videoListTabControls);
+    videoListTabControlsLayout->setContentsMargins(12, 8, 12, 8);
+    videoListTabControlsLayout->setSpacing(8);
+
+    QLabel* videoListTabLabel = new QLabel("🎬 All Videos", videoListTabControls);
+    videoListTabLabel->setStyleSheet("color: #cba6f7; font-size: 14px; font-weight: bold;");
+    videoListTabControlsLayout->addWidget(videoListTabLabel);
+
+    m_videoListTabCountLabel = new QLabel("Total: 0", videoListTabControls);
+    m_videoListTabCountLabel->setStyleSheet("color: #6c7086; font-size: 12px;");
+    videoListTabControlsLayout->addWidget(m_videoListTabCountLabel);
+
+    videoListTabControlsLayout->addStretch();
+    videoListTabLayout->addWidget(videoListTabControls);
+
+    // Video List Tab Scroll Area
+    QScrollArea* videoListTabScroll = new QScrollArea(this);
+    videoListTabScroll->setStyleSheet(
+      "QScrollArea { "
+      "  background: #181825; "
+      "  border: none; "
+      "} "
+      "QScrollBar:vertical { "
+      "  width: 8px; "
+      "  background: #1e1e2e; "
+      "} "
+      "QScrollBar::handle:vertical { "
+      "  background: #45475a; "
+      "  border-radius: 4px; "
+      "  min-height: 20px; "
+      "} "
+      "QScrollBar::handle:vertical:hover { "
+      "  background: #585b70; "
+      "}"
+    );
+    videoListTabScroll->setWidgetResizable(true);
+
+    QWidget* videoListTabContainer = new QWidget(this);
+    videoListTabContainer->setStyleSheet("background: #181825;");
+    QVBoxLayout* videoListLayout = new QVBoxLayout(videoListTabContainer);
+    videoListLayout->setAlignment(Qt::AlignTop);
+    videoListLayout->setContentsMargins(16, 16, 16, 16);
+    videoListLayout->setSpacing(16);
+
+    m_videoListTabScroll = videoListTabScroll;
+    m_videoListTabContainer = videoListTabContainer;
+    videoListTabScroll->setWidget(videoListTabContainer);
+    videoListTabLayout->addWidget(videoListTabScroll);
+
+    m_tabWidget->addTab(videoListTabContent, "🎬 Videos");
+
+    mainLayout->addWidget(m_tabWidget, 1);
 
   setCentralWidget(centralWidget);
 
@@ -716,54 +782,69 @@ void MainWindow::showNodeWeibo(uint64_t uid) {
   
    QLabel* uidLabel = new QLabel(QString("<span style='color: #6c7086; font-size: 13px;'>ID: %1</span>").arg(uid), headerWidget);
    uidLabel->setTextFormat(Qt::RichText);
-   headerLayout->addWidget(uidLabel);
-   
-   QHBoxLayout* buttonLayout = new QHBoxLayout();
-   buttonLayout->setContentsMargins(0, 8, 0, 0);
-   buttonLayout->setSpacing(8);
-   
-   QPushButton* viewPicBtn = new QPushButton("🖼️ View All Pictures", headerWidget);
-   viewPicBtn->setStyleSheet(
-     "QPushButton { "
-     "  background: #45475a; "
-     "  color: #cdd6f4; "
-     "  border: 1px solid #6c7086; "
-     "  padding: 8px 14px; "
-     "  border-radius: 6px; "
-     "  font-weight: bold; "
-     "  font-size: 12px; "
-     "} "
-     "QPushButton:hover { "
-     "  background: #585b70; "
-     "  border: 1px solid #89b4fa; "
-     "} "
-     "QPushButton:pressed { "
-     "  background: #45475a; "
-     "}"
-   );
-   connect(viewPicBtn, &QPushButton::clicked, [this, uid]() {
-     QMetaObject::invokeMethod(this, "showAllPictures", Qt::QueuedConnection, Q_ARG(uint64_t, uid));
-   });
-   buttonLayout->addWidget(viewPicBtn);
-   buttonLayout->addStretch();
-   
-   headerLayout->addLayout(buttonLayout);
-   
+    headerLayout->addWidget(uidLabel);
+
+    if (m_weibos.contains(uid) && !m_weibos[uid].empty()) {
+      QHBoxLayout* actionButtonLayout = new QHBoxLayout();
+      actionButtonLayout->setContentsMargins(0, 8, 0, 0);
+      actionButtonLayout->setSpacing(8);
+
+      QPushButton* viewPicBtn = new QPushButton("🖼️ View All Pictures", headerWidget);
+      viewPicBtn->setStyleSheet(
+        "QPushButton { "
+        "  background: #89b4fa; "
+        "  color: #1e1e2e; "
+        "  border: 1px solid #89b4fa; "
+        "  padding: 8px 14px; "
+        "  border-radius: 6px; "
+        "  font-weight: bold; "
+        "  font-size: 12px; "
+        "} "
+        "QPushButton:hover { "
+        "  background: #b4befe; "
+        "  border: 1px solid #b4befe; "
+        "} "
+        "QPushButton:pressed { "
+        "  background: #89b4fa; "
+        "}"
+      );
+      connect(viewPicBtn, &QPushButton::clicked, [this, uid]() {
+        QMetaObject::invokeMethod(this, "showAllPictures", Qt::QueuedConnection, Q_ARG(uint64_t, uid));
+      });
+      actionButtonLayout->addWidget(viewPicBtn);
+
+      QPushButton* viewVideoBtn = new QPushButton("🎬 View All Videos", headerWidget);
+      viewVideoBtn->setStyleSheet(
+        "QPushButton { "
+        "  background: #cba6f7; "
+        "  color: #1e1e2e; "
+        "  border: 1px solid #cba6f7; "
+        "  padding: 8px 14px; "
+        "  border-radius: 6px; "
+        "  font-weight: bold; "
+        "  font-size: 12px; "
+        "} "
+        "QPushButton:hover { "
+        "  background: #f5c2e7; "
+        "  border: 1px solid #f5c2e7; "
+        "} "
+        "QPushButton:pressed { "
+        "  background: #cba6f7; "
+        "}"
+      );
+      connect(viewVideoBtn, &QPushButton::clicked, [this, uid]() {
+        QMetaObject::invokeMethod(this, "showAllVideos", Qt::QueuedConnection, Q_ARG(uint64_t, uid));
+      });
+      actionButtonLayout->addWidget(viewVideoBtn);
+      actionButtonLayout->addStretch();
+
+      headerLayout->addLayout(actionButtonLayout);
+    }
+
    layout->addWidget(headerWidget);
-  
-  if (m_weibos.contains(uid)) {
-    const auto& weibos = m_weibos[uid];
-    if (weibos.empty()) {
-      QWidget* emptyWidget = new QWidget(m_weiboContainer);
-      emptyWidget->setStyleSheet("background: #313244; border-radius: 8px;");
-      QVBoxLayout* emptyLayout = new QVBoxLayout(emptyWidget);
-      emptyLayout->setContentsMargins(32, 32, 32, 32);
-      QLabel* noDataLabel = new QLabel("<p style='color: #6c7086; text-align: center; font-size: 14px;'>📭 No weibo data available.</p>", emptyWidget);
-      noDataLabel->setTextFormat(Qt::RichText);
-      noDataLabel->setAlignment(Qt::AlignCenter);
-      emptyLayout->addWidget(noDataLabel);
-      layout->addWidget(emptyWidget);
-    } else {
+
+   if (m_weibos.contains(uid) && !m_weibos[uid].empty()) {
+      const auto& weibos = m_weibos[uid];
       for (const WeiboData& weibo : weibos) {
         // Card container
         QWidget* cardWidget = new QWidget(m_weiboContainer);
@@ -814,75 +895,87 @@ void MainWindow::showNodeWeibo(uint64_t uid) {
             picLabel->setStyleSheet("border-radius: 8px; border: 2px solid #45475a; background: #1e1e2e;");
             
             if (m_imageCache.contains(picUrl)) {
-              QPixmap pixmap = m_imageCache[picUrl].scaled(300, 300, Qt::KeepAspectRatio, Qt::SmoothTransformation);
-              picLabel->setPixmap(pixmap);
-            } else {
-              picLabel->setText("🖼️");
-              picLabel->setStyleSheet("border-radius: 8px; border: 2px dashed #45475a; color: #6c7086; background: #1e1e2e;");
-              
-              std::thread([this, picUrl, picLabel, imagesWidget]() {
-                std::string url = picUrl.toStdString();
-                size_t pos = url.find("://");
-                std::string scheme_host;
-                std::string path;
-                if (pos != std::string::npos) {
-                  size_t slash_pos = url.find('/', pos + 3);
-                  if (slash_pos != std::string::npos) {
-                    scheme_host = url.substr(0, slash_pos);
-                    path = url.substr(slash_pos);
-                  }
-                }
-                
-                if (scheme_host.empty()) {
-                  scheme_host = url;
-                  path = "/";
-                }
-                
-                httplib::Client cli(scheme_host);
-                cli.set_follow_location(true);
-                cli.set_decompress(true);
-                
-                httplib::Headers headers = {
-                  {"accept", "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8"},
-                  {"accept-language", "en-US,en;q=0.9,zh-CN;q=0.8,zh;q=0.7"},
-                  {"cache-control", "no-cache"},
-                  {"pragma", "no-cache"},
-                  {"priority", "i"},
-                  {"referer", "https://m.weibo.cn/"},
-                  {"sec-ch-ua", "\"Not(A:Brand\";v=\"99\", \"Google Chrome\";v=\"133\", \"Chromium\";v=\"133\""},
-                  {"sec-ch-ua-mobile", "?1"},
-                  {"sec-ch-ua-platform", "\"Android\""},
-                  {"sec-fetch-dest", "image"},
-                  {"sec-fetch-mode", "no-cors"},
-                  {"sec-fetch-site", "cross-site"},
-                  {"sec-fetch-storage-access", "active"},
-                  {"user-agent", "Mozilla/5.0 (Linux; Android 6.0; Nexus 5 Build/MRA58N) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Mobile Safari/537.36"}
-                };
-                
-                auto res = cli.Get(path, headers);
-                if (res && res->status == 200) {
-                  QPixmap pixmap;
-                  if (pixmap.loadFromData(reinterpret_cast<const uchar*>(res->body.c_str()), res->body.size())) {
-                    m_imageCache[picUrl] = pixmap;
-                    QMetaObject::invokeMethod(this, [this, picUrl, picLabel, pixmap]() {
-                      if (picLabel) {
-                        QPixmap scaled = pixmap.scaled(300, 300, Qt::KeepAspectRatio, Qt::SmoothTransformation);
-                        picLabel->setPixmap(scaled);
-                        picLabel->setStyleSheet("border-radius: 8px; border: 2px solid #45475a; background: #1e1e2e;");
-                      }
-                    });
-                  }
-                }
-              }).detach();
+               QPixmap pixmap = m_imageCache[picUrl].scaled(300, 300, Qt::KeepAspectRatio, Qt::SmoothTransformation);
+               picLabel->setPixmap(pixmap);
+             } else {
+               picLabel->setText("🖼️");
+               picLabel->setStyleSheet("border-radius: 8px; border: 2px dashed #45475a; color: #6c7086; background: #1e1e2e;");
+
+               std::thread([this, picUrl, picLabel]() {
+                 while (m_activeDownloads.load() >= MAX_CONCURRENT_DOWNLOADS) {
+                   std::this_thread::sleep_for(std::chrono::milliseconds(100));
+                 }
+                 m_activeDownloads++;
+
+                 try {
+                   std::string url = picUrl.toStdString();
+                   size_t pos = url.find("://");
+                   std::string scheme_host;
+                   std::string path;
+                   if (pos != std::string::npos) {
+                     size_t slash_pos = url.find('/', pos + 3);
+                     if (slash_pos != std::string::npos) {
+                       scheme_host = url.substr(0, slash_pos);
+                       path = url.substr(slash_pos);
+                     }
+                   }
+
+                   if (scheme_host.empty()) {
+                     scheme_host = url;
+                     path = "/";
+                   }
+
+                   httplib::Client cli(scheme_host);
+                   cli.set_follow_location(true);
+                   cli.set_decompress(true);
+                   cli.set_keep_alive(false);
+                   cli.set_connection_timeout(10, 0);
+
+                   httplib::Headers headers = {
+                     {"accept", "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8"},
+                     {"accept-language", "en-US,en;q=0.9,zh-CN;q=0.8,zh;q=0.7"},
+                     {"cache-control", "no-cache"},
+                     {"pragma", "no-cache"},
+                     {"priority", "i"},
+                     {"referer", "https://m.weibo.cn/"},
+                     {"sec-ch-ua", "\"Not(A:Brand\";v=\"99\", \"Google Chrome\";v=\"133\", \"Chromium\";v=\"133\""},
+                     {"sec-ch-ua-mobile", "?1"},
+                     {"sec-ch-ua-platform", "\"Android\""},
+                     {"sec-fetch-dest", "image"},
+                     {"sec-fetch-mode", "no-cors"},
+                     {"sec-fetch-site", "cross-site"},
+                     {"sec-fetch-storage-access", "active"},
+                     {"user-agent", "Mozilla/5.0 (Linux; Android 6.0; Nexus 5 Build/MRA58N) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Mobile Safari/537.36"}
+                   };
+
+                   auto res = cli.Get(path, headers);
+                   if (res && res->status == 200) {
+                     QPixmap pixmap;
+                     if (pixmap.loadFromData(reinterpret_cast<const uchar*>(res->body.c_str()), res->body.size())) {
+                       m_imageCache[picUrl] = pixmap;
+                       QMetaObject::invokeMethod(this, [this, picUrl, picLabel, pixmap]() {
+                         if (picLabel) {
+                           QPixmap scaled = pixmap.scaled(300, 300, Qt::KeepAspectRatio, Qt::SmoothTransformation);
+                           picLabel->setPixmap(scaled);
+                           picLabel->setStyleSheet("border-radius: 8px; border: 2px solid #45475a; background: #1e1e2e;");
+                         }
+                       });
+                     }
+                   }
+                 } catch (...) {
+                 }
+
+                  m_activeDownloads--;
+                }).detach();
+              }
+
+              int row = imgCount / 3;
+              int col = imgCount % 3;
+              imagesLayout->addWidget(picLabel, row, col);
+              imgCount++;
             }
-            
-            int row = imgCount / 3;
-            int col = imgCount % 3;
-            imagesLayout->addWidget(picLabel, row, col);
-            imgCount++;
-          }
-          
-          imagesLayout->addItem(new QSpacerItem(0, 0, QSizePolicy::Expanding, QSizePolicy::Expanding), (imgCount + 2) / 3, 0, 1, 3);
+
+            imagesLayout->addItem(new QSpacerItem(0, 0, QSizePolicy::Expanding, QSizePolicy::Expanding), (imgCount + 2) / 3, 0, 1, 3);
           cardLayout->addWidget(imagesWidget);
         }
         
@@ -990,30 +1083,14 @@ void MainWindow::showNodeWeibo(uint64_t uid) {
           connect(m_videoTabPlayer.get(), &QMediaPlayer::errorOccurred, [videoStatus](QMediaPlayer::Error error, const QString& errorString) {
             videoStatus->setText(QString("Error: %1").arg(errorString));
           });
+
         }
-        
+
         layout->addWidget(cardWidget);
-      }
-    }
-  } else {
-    QWidget* emptyWidget = new QWidget(m_weiboContainer);
-    emptyWidget->setStyleSheet(
-      "QWidget { "
-      "  background: #313244; "
-      "  border-radius: 10px; "
-      "  border: 2px dashed #45475a; "
-      "}"
-    );
-    QVBoxLayout* emptyLayout = new QVBoxLayout(emptyWidget);
-    emptyLayout->setContentsMargins(40, 60, 40, 60);
-    QLabel* noDataLabel = new QLabel("<p style='color: #6c7086; text-align: center; font-size: 15px; line-height: 1.6;'>📭<br/>No weibo data available.<br/><span style='font-size: 13px;'>Enable Weibo crawling and run the spider.</span></p>", emptyWidget);
-    noDataLabel->setTextFormat(Qt::RichText);
-    noDataLabel->setAlignment(Qt::AlignCenter);
-    emptyLayout->addWidget(noDataLabel);
-    layout->addWidget(emptyWidget);
-  }
-  
-  layout->addStretch();
+     }
+   }
+
+   layout->addStretch();
 }
 
 void MainWindow::loadConfig() {
@@ -1152,6 +1229,8 @@ void MainWindow::downloadVideo(const QString& videoUrl, QWidget* parent) {
   appendLog(QString("Downloading video to %1...").arg(savePath));
   
   std::thread([this, videoUrl, savePath]() {
+    m_activeDownloads++;
+
     try {
       std::string url = videoUrl.toStdString();
       size_t pos = url.find("://");
@@ -1164,16 +1243,18 @@ void MainWindow::downloadVideo(const QString& videoUrl, QWidget* parent) {
           path = url.substr(slash_pos);
         }
       }
-      
+
       if (scheme_host.empty()) {
         scheme_host = url;
         path = "/";
       }
-      
+
       httplib::Client cli(scheme_host);
       cli.set_follow_location(true);
       cli.set_decompress(true);
-      
+      cli.set_keep_alive(false);
+      cli.set_connection_timeout(30, 0);
+
       httplib::Headers headers = {
         {"accept", "*/*"},
         {"accept-language", "en-US,en;q=0.9,zh-CN;q=0.8,zh;q=0.7"},
@@ -1188,7 +1269,7 @@ void MainWindow::downloadVideo(const QString& videoUrl, QWidget* parent) {
         {"sec-fetch-storage-access", "active"},
         {"user-agent", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.0 Safari/605.1.15"}
       };
-      
+
       auto res = cli.Get(path, headers);
       if (res && (res->status == 200 || res->status == 206)) {
         std::ofstream outfile(savePath.toStdString(), std::ios::binary);
@@ -1209,6 +1290,8 @@ void MainWindow::downloadVideo(const QString& videoUrl, QWidget* parent) {
       QMetaObject::invokeMethod(this, "appendLog", Qt::QueuedConnection,
         Q_ARG(QString, QString("Error downloading video: %1").arg(e.what())));
     }
+
+    m_activeDownloads--;
   }).detach();
 }
 
@@ -1234,7 +1317,10 @@ void MainWindow::saveAllPictures(const QList<QString>& picUrls, QWidget* parent)
 
   appendLog(QString("Downloading %1 pictures to %2...").arg(picUrls.size()).arg(saveFolderPath));
 
-  std::thread([this, picUrls, saveFolderPath]() {
+  std::string cookies = loadCookies();
+  appendLog(QString::fromStdString(fmt::format("Loaded cookies: {} bytes", cookies.size())));
+
+  std::thread([this, picUrls, saveFolderPath, cookies]() {
     int successCount = 0;
     int failureCount = 0;
 
@@ -1262,6 +1348,8 @@ void MainWindow::saveAllPictures(const QList<QString>& picUrls, QWidget* parent)
         httplib::Client cli(scheme_host);
         cli.set_follow_location(true);
         cli.set_decompress(true);
+        cli.set_keep_alive(false);
+        cli.set_connection_timeout(10, 0);
 
         httplib::Headers headers = {
           {"accept", "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8"},
@@ -1279,6 +1367,10 @@ void MainWindow::saveAllPictures(const QList<QString>& picUrls, QWidget* parent)
           {"sec-fetch-storage-access", "active"},
           {"user-agent", "Mozilla/5.0 (Linux; Android 6.0; Nexus 5 Build/MRA58N) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Mobile Safari/537.36"}
         };
+
+        if (!cookies.empty()) {
+          headers.insert(std::make_pair("Cookie", cookies));
+        }
 
         auto res = cli.Get(path, headers);
         if (res && res->status == 200) {
@@ -1389,30 +1481,37 @@ void MainWindow::showAllPictures(uint64_t uid) {
           picLabel->setText("🖼️");
           picLabel->setStyleSheet("border-radius: 8px; border: 2px dashed #45475a; color: #6c7086; background: #1e1e2e;");
 
-          // Download picture asynchronously
           std::thread([this, picUrl, picLabel]() {
-            std::string url = picUrl.toStdString();
-            size_t pos = url.find("://");
-            std::string scheme_host;
-            std::string path;
-            if (pos != std::string::npos) {
-              size_t slash_pos = url.find('/', pos + 3);
-              if (slash_pos != std::string::npos) {
-                scheme_host = url.substr(0, slash_pos);
-                path = url.substr(slash_pos);
+            while (m_activeDownloads.load() >= MAX_CONCURRENT_DOWNLOADS) {
+              std::this_thread::sleep_for(std::chrono::milliseconds(100));
+            }
+            m_activeDownloads++;
+
+            try {
+              std::string url = picUrl.toStdString();
+              size_t pos = url.find("://");
+              std::string scheme_host;
+              std::string path;
+              if (pos != std::string::npos) {
+                size_t slash_pos = url.find('/', pos + 3);
+                if (slash_pos != std::string::npos) {
+                  scheme_host = url.substr(0, slash_pos);
+                  path = url.substr(slash_pos);
+                }
               }
-            }
 
-            if (scheme_host.empty()) {
-              scheme_host = url;
-              path = "/";
-            }
+              if (scheme_host.empty()) {
+                scheme_host = url;
+                path = "/";
+              }
 
-            httplib::Client cli(scheme_host);
-            cli.set_follow_location(true);
-            cli.set_decompress(true);
+              httplib::Client cli(scheme_host);
+              cli.set_follow_location(true);
+              cli.set_decompress(true);
+              cli.set_keep_alive(false);
+              cli.set_connection_timeout(10, 0);
 
-            httplib::Headers headers = {
+              httplib::Headers headers = {
               {"accept", "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8"},
               {"accept-language", "en-US,en;q=0.9,zh-CN;q=0.8,zh;q=0.7"},
               {"cache-control", "no-cache"},
@@ -1429,20 +1528,24 @@ void MainWindow::showAllPictures(uint64_t uid) {
               {"user-agent", "Mozilla/5.0 (Linux; Android 6.0; Nexus 5 Build/MRA58N) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Mobile Safari/537.36"}
             };
 
-            auto res = cli.Get(path, headers);
-            if (res && res->status == 200) {
-              QPixmap pixmap;
-              if (pixmap.loadFromData(reinterpret_cast<const uchar*>(res->body.c_str()), res->body.size())) {
-                m_imageCache[picUrl] = pixmap;
-                QMetaObject::invokeMethod(this, [this, picUrl, picLabel, pixmap]() {
-                  if (picLabel) {
-                    QPixmap scaled = pixmap.scaled(400, 400, Qt::KeepAspectRatio, Qt::SmoothTransformation);
-                    picLabel->setPixmap(scaled);
-                    picLabel->setStyleSheet("border-radius: 8px; border: 2px solid #45475a; background: #1e1e2e;");
-                  }
-                });
+              auto res = cli.Get(path, headers);
+              if (res && res->status == 200) {
+                QPixmap pixmap;
+                if (pixmap.loadFromData(reinterpret_cast<const uchar*>(res->body.c_str()), res->body.size())) {
+                  m_imageCache[picUrl] = pixmap;
+                  QMetaObject::invokeMethod(this, [this, picUrl, picLabel, pixmap]() {
+                    if (picLabel) {
+                      QPixmap scaled = pixmap.scaled(400, 400, Qt::KeepAspectRatio, Qt::SmoothTransformation);
+                      picLabel->setPixmap(scaled);
+                      picLabel->setStyleSheet("border-radius: 8px; border: 2px solid #45475a; background: #1e1e2e;");
+                    }
+                  });
+                }
               }
+            } catch (...) {
             }
+
+            m_activeDownloads--;
           }).detach();
         }
 
@@ -1473,4 +1576,163 @@ void MainWindow::showAllPictures(uint64_t uid) {
     emptyLayout->addWidget(noDataLabel);
     layout->addWidget(emptyWidget);
   }
+}
+
+void MainWindow::showAllVideos(uint64_t uid) {
+  m_tabWidget->setCurrentIndex(4);
+
+  if (!m_videoListTabScroll || !m_videoListTabContainer) return;
+
+  QLayout* oldLayout = m_videoListTabContainer->layout();
+  if (oldLayout) {
+    delete oldLayout;
+  }
+
+  QVBoxLayout* layout = new QVBoxLayout(m_videoListTabContainer);
+  layout->setAlignment(Qt::AlignTop);
+  layout->setContentsMargins(16, 16, 16, 16);
+  layout->setSpacing(16);
+
+  m_currentVideoListUid = uid;
+  m_currentVideoUrls.clear();
+
+  if (m_weibos.contains(uid)) {
+    const auto& weibos = m_weibos[uid];
+
+    QList<QString> allVideos;
+    QMap<QString, QString> videoTimestamps;
+    QMap<QString, QString> videoTexts;
+
+    for (const WeiboData& weibo : weibos) {
+      if (!weibo.video_url.empty() && weibo.video_url.find("http") == 0) {
+        QString videoUrl = QString::fromStdString(weibo.video_url);
+        allVideos.append(videoUrl);
+        videoTimestamps[videoUrl] = weibo.timestamp;
+        videoTexts[videoUrl] = weibo.text;
+      }
+    }
+
+    m_currentVideoUrls = allVideos;
+    m_videoListTabCountLabel->setText(QString("Total: %1").arg(allVideos.size()));
+
+    if (allVideos.isEmpty()) {
+      QWidget* emptyWidget = new QWidget(m_videoListTabContainer);
+      emptyWidget->setStyleSheet("background: #313244; border-radius: 8px;");
+      QVBoxLayout* emptyLayout = new QVBoxLayout(emptyWidget);
+      emptyLayout->setContentsMargins(32, 32, 32, 32);
+      QLabel* noDataLabel = new QLabel("<p style='color: #6c7086; text-align: center; font-size: 14px;'>📭 No videos available.</p>", emptyWidget);
+      noDataLabel->setTextFormat(Qt::RichText);
+      noDataLabel->setAlignment(Qt::AlignCenter);
+      emptyLayout->addWidget(noDataLabel);
+      layout->addWidget(emptyWidget);
+    } else {
+      for (const QString& videoUrl : allVideos) {
+        QString timestamp = videoTimestamps.value(videoUrl, "");
+        QString weiboText = videoTexts.value(videoUrl, "");
+
+        QWidget* videoCard = new QWidget(m_videoListTabContainer);
+        videoCard->setStyleSheet(
+          "QWidget { "
+          "  background: #313244; "
+          "  border-radius: 10px; "
+          "  border: 1px solid #45475a; "
+          "} "
+          "QWidget:hover { "
+          "  border: 1px solid #cba6f7; "
+          "  background: #363656; "
+          "}"
+        );
+        QVBoxLayout* videoCardLayout = new QVBoxLayout(videoCard);
+        videoCardLayout->setContentsMargins(16, 16, 16, 16);
+        videoCardLayout->setSpacing(12);
+
+        QLabel* timeLabel = new QLabel(QString("<span style='color: #cba6f7; font-size: 12px; font-weight: bold;'>📅 %1</span>").arg(timestamp), videoCard);
+        timeLabel->setTextFormat(Qt::RichText);
+        videoCardLayout->addWidget(timeLabel);
+
+        QLabel* videoIconLabel = new QLabel("🎬 Video", videoCard);
+        videoIconLabel->setStyleSheet("color: #cdd6f4; font-size: 14px; font-weight: bold;");
+        videoIconLabel->setAlignment(Qt::AlignCenter);
+        videoCardLayout->addWidget(videoIconLabel);
+
+        QLabel* urlLabel = new QLabel(videoUrl.left(50) + (videoUrl.length() > 50 ? "..." : ""), videoCard);
+        urlLabel->setStyleSheet("color: #6c7086; font-size: 11px;");
+        urlLabel->setWordWrap(true);
+        urlLabel->setAlignment(Qt::AlignCenter);
+        videoCardLayout->addWidget(urlLabel);
+
+        if (!weiboText.isEmpty()) {
+          QLabel* textLabel = new QLabel(weiboText.left(200) + (weiboText.length() > 200 ? "..." : ""), videoCard);
+          textLabel->setWordWrap(true);
+          textLabel->setTextFormat(Qt::PlainText);
+          textLabel->setStyleSheet("color: #cdd6f4; font-size: 13px; line-height: 1.5;");
+          textLabel->setMinimumHeight(50);
+          videoCardLayout->addWidget(textLabel);
+        }
+
+        QPushButton* playBtn = new QPushButton("▶ Play in Video Tab", videoCard);
+        playBtn->setStyleSheet(
+          "QPushButton { "
+          "  background: #cba6f7; "
+          "  color: #1e1e2e; "
+          "  border: none; "
+          "  padding: 10px 20px; "
+          "  border-radius: 6px; "
+          "  font-weight: bold; "
+          "  font-size: 13px; "
+          "} "
+          "QPushButton:hover { "
+          "  background: #f5c2e7; "
+          "} "
+          "QPushButton:pressed { "
+          "  background: #cba6f7; "
+          "}"
+        );
+        connect(playBtn, &QPushButton::clicked, [this, videoUrl]() {
+          m_tabWidget->setCurrentIndex(2);
+          m_currentVideoUrl = videoUrl;
+          m_videoTabPlayer->setSource(QUrl::fromUserInput(videoUrl));
+          m_videoTabStatus->setText("Loading...");
+          QTimer::singleShot(100, [this]() {
+            m_videoTabPlayer->play();
+            m_videoTabStatus->setText("Playing");
+          });
+        });
+        videoCardLayout->addWidget(playBtn);
+
+        layout->addWidget(videoCard);
+      }
+    }
+
+    layout->addStretch();
+  } else {
+    m_videoListTabCountLabel->setText("Total: 0");
+    QWidget* emptyWidget = new QWidget(m_videoListTabContainer);
+    emptyWidget->setStyleSheet("background: #313244; border-radius: 8px;");
+    QVBoxLayout* emptyLayout = new QVBoxLayout(emptyWidget);
+    emptyLayout->setContentsMargins(32, 32, 32, 32);
+    QLabel* noDataLabel = new QLabel("<p style='color: #6c7086; text-align: center; font-size: 14px;'>📭 No weibo data for this user.</p>", emptyWidget);
+    noDataLabel->setTextFormat(Qt::RichText);
+    noDataLabel->setAlignment(Qt::AlignCenter);
+    emptyLayout->addWidget(noDataLabel);
+    layout->addWidget(emptyWidget);
+  }
+}
+
+std::string MainWindow::loadCookies() {
+  std::ifstream cookie_ifs("/home/gugugu/Repo/cpp-spider/cookie.json");
+  if (!cookie_ifs.is_open()) {
+    return "";
+  }
+  using json = nlohmann::json;
+  json json_cookie = json::parse(cookie_ifs);
+  std::string cookie;
+  for (json::iterator it = json_cookie.begin(); it != json_cookie.end(); ++it) {
+    if (!cookie.empty()) {
+      cookie += "; ";
+    }
+    cookie += it.key() + "=" + it.value().get<std::string>();
+  }
+  cookie_ifs.close();
+  return cookie;
 }

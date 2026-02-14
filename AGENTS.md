@@ -6,19 +6,46 @@ This is a Qt6-based Weibo web scraper with a graphical user interface. It collec
 
 ## Build Commands
 
+### Initial Setup
+```bash
+# Create build directory if it doesn't exist
+mkdir -p build
+cd build
+
+# Configure the project with CMake
+cmake ..
+```
+
 ### Building the Project
 ```bash
+# From the build directory
+make
+
+# Or from the project root
 cd build && make
 ```
 
 The compiled binary is located at `build/cpp-spider`.
 
+### Rebuilding After Changes
+```bash
+# From the build directory
+make
+
+# For a clean rebuild
+make clean && make
+```
+
 ### Running
 ```bash
+# From the project root
 ./build/cpp-spider
 ```
 
-Note: Requires MongoDB running at `mongodb://0.0.0.0:27017`, a `cookie.json` file with valid Weibo cookies, and a `headers.json` file with valid Weibo session headers in the project root.
+**Prerequisites:**
+- MongoDB running at `mongodb://0.0.0.0:27017`
+- `cookie.json` file with valid Weibo cookies in the project root
+- `headers.json` file with valid Weibo session headers in the project root
 
 ### Dependencies
 - CMake 3.15+
@@ -183,11 +210,29 @@ QMetaObject::invokeMethod(this, "onUserFetched", Qt::QueuedConnection,
 
 ### Adding New Files
 
-1. Create `.hpp` header file with proper include guard
-2. Create corresponding `.cpp` implementation file
-3. Add to `CMakeLists.txt` `add_executable` command
+1. Create `.hpp` header file in `include/` directory with proper include guard
+2. Create corresponding `.cpp` implementation file in `src/` directory
+3. Add both files to `CMakeLists.txt` in the `add_executable` command (lines 17-28)
 4. Follow the include order and naming conventions above
-5. Add new source files to the list in CMakeLists.txt:17
+5. Ensure `target_include_directories` is set to include the `include/` directory (line 30)
+
+Example:
+```cmake
+add_executable(cpp-spider
+  src/main.cpp
+  src/mainwindow.cpp
+  src/spider.cpp
+  src/weibo.cpp
+  src/writer.cpp
+  src/new_file.cpp          # Add new source file
+  include/mainwindow.hpp
+  include/spider.hpp
+  include/weibo.hpp
+  include/writer.hpp
+  include/graph_layout.hpp
+  include/new_file.hpp      # Add new header file
+)
+```
 
 ### Dependencies
 
@@ -201,6 +246,29 @@ When adding new dependencies:
 
 ## Code Architecture
 
+### Project Structure
+
+```
+cpp-spider/
+├── include/          # Header files
+│   ├── graph_layout.hpp
+│   ├── mainwindow.hpp
+│   ├── spider.hpp
+│   ├── weibo.hpp
+│   └── writer.hpp
+├── src/              # Implementation files
+│   ├── main.cpp
+│   ├── mainwindow.cpp
+│   ├── spider.cpp
+│   ├── weibo.cpp
+│   └── writer.cpp
+├── build/            # Build artifacts (generated)
+├── cookie.json       # Weibo authentication cookies
+├── headers.json      # HTTP headers for API requests
+├── config.json       # User preferences (saved by MainWindow)
+└── CMakeLists.txt    # Build configuration
+```
+
 ### Overview
 
 The project follows a layered architecture with clear separation of concerns:
@@ -213,11 +281,11 @@ The project follows a layered architecture with clear separation of concerns:
 
 | Component | Files | Role |
 |-----------|-------|------|
-| **Spider** | `spider.cpp/hpp` | Crawling engine, HTTP requests, rate limiting |
-| **MongoWriter** | `writer.cpp/hpp` | MongoDB connection and document persistence |
-| **Data Models** | `weibo.cpp/hpp` | `Weibo` and `User` data structures |
-| **MainWindow** | `mainwindow.cpp/hpp` | GUI orchestration, graph visualization |
-| **GraphLayout** | `graph_layout.hpp` | Layout algorithms (Force, Circular, Grid, etc.) |
+| **Spider** | `src/spider.cpp`, `include/spider.hpp` | Crawling engine, HTTP requests, rate limiting |
+| **MongoWriter** | `src/writer.cpp`, `include/writer.hpp` | MongoDB connection and document persistence |
+| **Data Models** | `src/weibo.cpp`, `include/weibo.hpp` | `Weibo` and `User` data structures |
+| **MainWindow** | `src/mainwindow.cpp`, `include/mainwindow.hpp` | GUI orchestration, graph visualization, tabs management |
+| **GraphLayout** | `include/graph_layout.hpp` | Layout algorithms (Force-Directed, Circular, Grid, Hierarchical, Random) |
 
 ### Component Interaction
 

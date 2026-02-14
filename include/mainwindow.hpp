@@ -32,6 +32,8 @@
 #include <memory>
 #include <tuple>
 #include <functional>
+#include <atomic>
+#include <mutex>
 
 class Spider;
 class User;
@@ -163,8 +165,10 @@ private slots:
    void onLayoutChanged(int index);
    void onApplyLayoutClicked();
    void showNodeWeibo(uint64_t uid);
-   void updateWeiboStats(int totalWeibo, int totalVideo);
-   void showAllPictures(uint64_t uid);
+    void updateWeiboStats(int totalWeibo, int totalVideo);
+    void showAllPictures(uint64_t uid);
+    void showAllVideos(uint64_t uid);
+    std::string loadCookies();
 
 private:
    void setupUi();
@@ -216,9 +220,12 @@ private:
     std::string video_url;
   };
   QMap<uint64_t, std::vector<WeiboData>> m_weibos;
-  QMap<QString, QPixmap> m_imageCache;
-  std::unique_ptr<httplib::Client> m_imageClient;
-  int m_nodeCount;
+   QMap<QString, QPixmap> m_imageCache;
+   std::unique_ptr<httplib::Client> m_imageClient;
+   std::mutex m_imageClientMutex;
+   std::atomic<int> m_activeDownloads;
+   static const int MAX_CONCURRENT_DOWNLOADS = 8;
+   int m_nodeCount;
   LayoutType m_currentLayout;
   
   std::unique_ptr<QMediaPlayer> m_videoPlayer;
@@ -235,11 +242,17 @@ private:
    QLabel* m_videoTabStatus;
    QString m_currentVideoUrl;
    
-   QScrollArea* m_picTabScroll;
-   QWidget* m_picTabContainer;
-   QLabel* m_picTabCountLabel;
-   QList<QString> m_currentPictureUrls;
-   uint64_t m_currentPictureUid;
+     QScrollArea* m_picTabScroll;
+    QWidget* m_picTabContainer;
+    QLabel* m_picTabCountLabel;
+    QList<QString> m_currentPictureUrls;
+    uint64_t m_currentPictureUid;
+
+    QScrollArea* m_videoListTabScroll;
+    QWidget* m_videoListTabContainer;
+    QLabel* m_videoListTabCountLabel;
+    QList<QString> m_currentVideoUrls;
+    uint64_t m_currentVideoListUid;
 };
 
 #endif  // MAINWINDOW_HPP
