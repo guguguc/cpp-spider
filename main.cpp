@@ -1,12 +1,11 @@
-#include "spider.hpp"
+#include "mainwindow.hpp"
+#include <QApplication>
+#include <mongocxx/instance.hpp>
 
-const std::string mongo_url = "mongodb://0.0.0.0:27017";
-
-int main()
-{
+int main(int argc, char* argv[]) {
   mongocxx::instance inst{};
-  Spider spider(6126303533);
-  spider.run();
-    
-  return 0;
+  QApplication app(argc, argv);
+  MainWindow window;
+  window.show();
+  return app.exec();
 }
