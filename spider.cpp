@@ -246,25 +246,25 @@ std::vector<Weibo> Spider::get_weibo(const User &user) {
       std::string tm = item["created_at"].get<std::string>();
       std::string text = item["text"].get<std::string>();
       uint64_t id = item["id"].get<uint64_t>();
-      std::vector<std::string> urls;
-      if (item.count("pic_infos")) {
-        item = item["pic_infos"];
-        for (auto it = item.begin(); it != item.end(); ++it) {
-          if (!it->second.contains("large")) {
-            continue;
-          }
-          std::string url = it->second["large"]["url"].get<std::string>();
-          urls.push_back(url);
-        }
-      }
-      std::string video_url;
-      if (item.count("page_info") && item["page_info"].count("media_info") && 
-          item["page_info"]["media_info"].count("stream_url")) {
-        video_url = item["page_info"]["media_info"]["stream_url"].get<std::string>();
-        if (video_url.find("http") != 0) {
-          video_url = "";
-        }
-      }
+       std::vector<std::string> urls;
+       if (item.count("pic_infos")) {
+         const auto& pic_infos = item["pic_infos"];
+         for (auto& [key, value] : pic_infos.items()) {
+           if (!value.contains("large")) {
+             continue;
+           }
+           std::string url = value["large"]["url"].get<std::string>();
+           urls.push_back(url);
+         }
+       }
+       std::string video_url;
+       if (item.count("page_info") && item["page_info"].count("media_info") && 
+           item["page_info"]["media_info"].count("stream_url")) {
+         video_url = item["page_info"]["media_info"]["stream_url"].get<std::string>();
+         if (video_url.find("http") != 0) {
+           video_url = "";
+         }
+       }
       Weibo weibo(text, tm, id, urls, video_url);
       spdlog::info(weibo.dump());
       weibos.push_back(weibo);
