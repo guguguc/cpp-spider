@@ -1329,20 +1329,16 @@ void MainWindow::showAllPictures(uint64_t uid) {
   
   if (!m_picTabScroll || !m_picTabContainer) return;
 
-  QVBoxLayout* layout = qobject_cast<QVBoxLayout*>(m_picTabContainer->layout());
-  if (!layout) {
-    layout = new QVBoxLayout(m_picTabContainer);
-    layout->setAlignment(Qt::AlignTop);
-    layout->setContentsMargins(16, 16, 16, 16);
-    layout->setSpacing(12);
+  // Delete the old layout completely and create a new one
+  QLayout* oldLayout = m_picTabContainer->layout();
+  if (oldLayout) {
+    delete oldLayout;
   }
-
-  // Clear previous pictures
-  while (layout->count() > 0) {
-    QLayoutItem* item = layout->takeAt(0);
-    if (item->widget()) delete item->widget();
-    delete item;
-  }
+  
+  QVBoxLayout* layout = new QVBoxLayout(m_picTabContainer);
+  layout->setAlignment(Qt::AlignTop);
+  layout->setContentsMargins(16, 16, 16, 16);
+  layout->setSpacing(12);
 
   m_currentPictureUid = uid;
   m_currentPictureUrls.clear();
