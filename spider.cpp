@@ -243,9 +243,9 @@ std::vector<Weibo> Spider::get_weibo(const User &user) {
       break;
     }
     for (auto &item : items) {
-      std::string tm = item["created_at"].get<std::string>();
-      std::string text = item["text"].get<std::string>();
-      uint64_t id = item["id"].get<uint64_t>();
+       std::string tm = item["created_at"].get<std::string>();
+       std::string text = item["text"].get<std::string>();
+       uint64_t id = item["id"].get<uint64_t>();
        std::vector<std::string> urls;
        if (item.count("pic_infos")) {
          const auto& pic_infos = item["pic_infos"];
