@@ -237,6 +237,7 @@ private:
    
    QScrollArea* m_picTabScroll;
    QWidget* m_picTabContainer;
+   QLabel* m_picTabCountLabel;
    QList<QString> m_currentPictureUrls;
    uint64_t m_currentPictureUid;
 };

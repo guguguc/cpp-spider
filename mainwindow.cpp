@@ -434,9 +434,9 @@ void MainWindow::setupUi() {
    });
    picTabControlsLayout->addWidget(picTabSaveBtn);
    
-   QLabel* picCountLabel = new QLabel("Total: 0", picTabControls);
-   picCountLabel->setStyleSheet("color: #6c7086; font-size: 12px;");
-   picTabControlsLayout->addWidget(picCountLabel);
+    m_picTabCountLabel = new QLabel("Total: 0", picTabControls);
+    m_picTabCountLabel->setStyleSheet("color: #6c7086; font-size: 12px;");
+    picTabControlsLayout->addWidget(m_picTabCountLabel);
    
    picTabControlsLayout->addStretch();
    picTabLayout->addWidget(picTabControls);
@@ -1355,6 +1355,7 @@ void MainWindow::showAllPictures(uint64_t uid) {
     }
 
     m_currentPictureUrls = allPictures;
+    m_picTabCountLabel->setText(QString("Total: %1").arg(allPictures.size()));
 
     if (allPictures.isEmpty()) {
       QWidget* emptyWidget = new QWidget(m_picTabContainer);
@@ -1461,6 +1462,7 @@ void MainWindow::showAllPictures(uint64_t uid) {
 
     layout->addStretch();
   } else {
+    m_picTabCountLabel->setText("Total: 0");
     QWidget* emptyWidget = new QWidget(m_picTabContainer);
     emptyWidget->setStyleSheet("background: #313244; border-radius: 8px;");
     QVBoxLayout* emptyLayout = new QVBoxLayout(emptyWidget);
