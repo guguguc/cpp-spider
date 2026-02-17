@@ -33,10 +33,11 @@ It fetches user profile data from Weibo, draws relationship graphs, collects Wei
 - C++17
 - CMake
 - Qt6 (`Widgets`, `Network`, `MultimediaWidgets`)
-- cpp-httplib
+- cpp-httplib (OpenSSL)
 - nlohmann/json
 - spdlog + fmt
 - mongo-cxx-driver (`mongocxx`, `bsoncxx`)
+- OpenSSL
 
 ## Project Structure
 
@@ -73,6 +74,7 @@ cpp-spider/
   - `nlohmann_json`
   - `bsoncxx`
   - `mongocxx`
+  - `OpenSSL`
 
 ## Build & Run
 
@@ -87,6 +89,7 @@ Dependencies:
 - CMake 3.15+
 - C++17 compiler
 - Qt6 dev packages
+- OpenSSL dev packages
 - CMake packages for `httplib`, `fmt`, `spdlog`, `nlohmann_json`, `bsoncxx`, `mongocxx`
 
 ```bash
@@ -100,6 +103,7 @@ Binary output:
 
 ```text
 build/cpp-spider
+build/libspider.so
 ```
 
 From project root:
@@ -157,7 +161,7 @@ Example:
 ## How It Works
 
 1. `MainWindow` starts a worker `QThread`.
-2. Worker creates `Spider(uid)` and sets callbacks.
+2. Worker creates `Spider(uid)` and sets callbacks (from `libspider.so`).
 3. `Spider` fetches profile/fans/followers/posts from Weibo Ajax endpoints.
 4. UI updates are pushed back with `QMetaObject::invokeMethod(..., Qt::QueuedConnection)`.
 5. Crawled user data is written by `MongoWriter` into MongoDB.
@@ -215,6 +219,8 @@ Notes:
   - Check driver installation and CMake package discovery.
 - Media not loading:
   - Some URLs may require valid cookies or may expire quickly.
+- HTTPS errors:
+  - Ensure OpenSSL dev packages are installed and CMake finds them.
 
 ## License
 

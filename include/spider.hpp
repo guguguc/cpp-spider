@@ -2,12 +2,14 @@
 #define SPIDER
 
 
-#include <vector>
 #include <functional>
+#include <memory>
+#include <vector>
 #include <httplib.h>
 #include "weibo.hpp"
-#include "writer.hpp"
 
+
+class MongoWriter;
 
 class Spider {
 public:
@@ -17,6 +19,7 @@ public:
   using WeiboCallback = std::function<void(uint64_t uid, const std::vector<Weibo>& weibos)>;
 
   explicit Spider(uint64_t user_id);
+  ~Spider();
   void setUserCallback(UserCallback callback);
   void setWeiboCallback(WeiboCallback callback);
   void setCrawlWeibo(bool crawl);
@@ -38,7 +41,7 @@ private:
   User m_self;
   std::unique_ptr<httplib::Client> m_client; 
   uint64_t m_visit_cnt;
-  MongoWriter m_writer;
+  std::unique_ptr<MongoWriter> m_writer;
   UserCallback m_userCallback;
   WeiboCallback m_weiboCallback;
   bool m_crawlWeibo;

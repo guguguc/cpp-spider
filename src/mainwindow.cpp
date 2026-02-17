@@ -67,7 +67,11 @@ void MainWindow::initThemes() {
     {"Aurora", QColor("#10B981"), QColor("#047857"), QColor("#6EE7B7"), QColor("#F43F5E"), QColor("#ECFDF5"), QColor("#064E3B")},
     {"Coral", QColor("#F97316"), QColor("#C2410C"), QColor("#FDBA74"), QColor("#FB7185"), QColor("#FFF7ED"), QColor("#7C2D12")},
     {"Neon", QColor("#E879F9"), QColor("#A21CAF"), QColor("#D8B4FE"), QColor("#22D3EE"), QColor("#1E1B4B"), QColor("#E9D5FF")},
-    {"Slate", QColor("#3B82F6"), QColor("#1D4ED8"), QColor("#60A5FA"), QColor("#F87171"), QColor("#0F172A"), QColor("#F1F5F9")}
+    {"Slate", QColor("#3B82F6"), QColor("#1D4ED8"), QColor("#60A5FA"), QColor("#F87171"), QColor("#0F172A"), QColor("#F1F5F9")},
+    {"Sunset", QColor("#F59E0B"), QColor("#B45309"), QColor("#FB923C"), QColor("#EF4444"), QColor("#FFF7ED"), QColor("#7C2D12")},
+    {"Forest", QColor("#22C55E"), QColor("#166534"), QColor("#86EFAC"), QColor("#F97316"), QColor("#F0FDF4"), QColor("#14532D")},
+    {"Skyline", QColor("#38BDF8"), QColor("#0369A1"), QColor("#93C5FD"), QColor("#F43F5E"), QColor("#F0F9FF"), QColor("#0C4A6E")},
+    {"Rose Gold", QColor("#FB7185"), QColor("#BE123C"), QColor("#F9A8D4"), QColor("#F59E0B"), QColor("#FFF1F2"), QColor("#881337")}
   };
 }
 
@@ -77,10 +81,142 @@ void MainWindow::applyTheme(int index) {
   const Theme& theme = m_themes[index];
 
   m_graphScene->setBackgroundBrush(QBrush(theme.background));
-  
+
+  const bool dark_mode = theme.background.lightness() < 128;
+  const QColor window_bg = dark_mode ? theme.background.darker(150) : theme.background.lighter(103);
+  const QColor panel_bg = dark_mode ? theme.background.lighter(118) : theme.background.darker(104);
+  const QColor card_bg = dark_mode ? theme.background.lighter(132) : theme.background.darker(110);
+  const QColor border = dark_mode ? theme.nodePen.lighter(135) : theme.nodePen.darker(110);
+  const QColor accent = theme.nodeBrush;
+  const QColor accent_hover = dark_mode ? accent.lighter(118) : accent.darker(106);
+  const QColor text_primary = theme.text;
+  const QColor text_muted = dark_mode ? theme.text.darker(140) : theme.text.lighter(145);
+
+  const QString style = QString(R"(
+    QMainWindow, QWidget {
+      background-color: %1;
+      color: %2;
+    }
+    QToolBar {
+      background: %3;
+      border: 1px solid %4;
+      border-radius: 8px;
+      padding: 8px;
+      spacing: 8px;
+    }
+    QLabel {
+      color: %2;
+    }
+    QLineEdit, QComboBox, QTextEdit {
+      background: %5;
+      color: %2;
+      border: 1px solid %4;
+      border-radius: 6px;
+      padding: 6px 8px;
+      selection-background-color: %6;
+      selection-color: %1;
+    }
+    QComboBox::drop-down {
+      border: none;
+      width: 18px;
+    }
+    QCheckBox {
+      spacing: 6px;
+      color: %2;
+    }
+    QCheckBox::indicator {
+      width: 14px;
+      height: 14px;
+      border-radius: 4px;
+      border: 1px solid %4;
+      background: %5;
+    }
+    QCheckBox::indicator:checked {
+      background: %6;
+      border: 1px solid %6;
+    }
+    QPushButton {
+      background: %6;
+      color: %1;
+      border: 1px solid %6;
+      border-radius: 6px;
+      padding: 6px 12px;
+      font-weight: 600;
+    }
+    QPushButton:hover {
+      background: %7;
+      border: 1px solid %7;
+    }
+    QPushButton:disabled {
+      background: %3;
+      border: 1px solid %4;
+      color: %8;
+    }
+    QTabWidget::pane {
+      border: 1px solid %4;
+      border-radius: 10px;
+      background: %3;
+    }
+    QTabBar::tab {
+      background: %5;
+      color: %2;
+      padding: 8px 16px;
+      border-top-left-radius: 6px;
+      border-top-right-radius: 6px;
+    }
+    QTabBar::tab:selected {
+      background: %6;
+      color: %1;
+    }
+    QScrollArea {
+      border: none;
+      background: %3;
+    }
+    QScrollBar:vertical {
+      width: 8px;
+      background: %5;
+      margin: 2px;
+      border-radius: 4px;
+    }
+    QScrollBar::handle:vertical {
+      background: %4;
+      min-height: 24px;
+      border-radius: 4px;
+    }
+    QScrollBar::handle:vertical:hover {
+      background: %6;
+    }
+    QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
+      height: 0px;
+    }
+  )")
+    .arg(window_bg.name())
+    .arg(text_primary.name())
+    .arg(panel_bg.name())
+    .arg(border.name())
+    .arg(card_bg.name())
+    .arg(accent.name())
+    .arg(accent_hover.name())
+    .arg(text_muted.name());
+  setStyleSheet(style);
+
+  m_graphView->setStyleSheet(
+      QString("background: %1; border: 1px solid %2; border-radius: 10px;")
+          .arg(panel_bg.name())
+          .arg(border.name()));
+  m_logEdit->setStyleSheet(
+      QString("background: %1; border: 1px solid %2; border-radius: 8px; color: %3;")
+          .arg(card_bg.name())
+          .arg(border.name())
+          .arg(text_primary.name()));
+
   for (auto* node : m_nodes.values()) {
     node->setTheme(theme);
     node->updateLines();
+  }
+
+  for (auto* label : m_labels.values()) {
+    label->setDefaultTextColor(theme.text);
   }
 
   for (auto it = m_lines.constBegin(); it != m_lines.constEnd(); ++it) {
@@ -126,7 +262,6 @@ void MainWindow::setupUi() {
   toolbar->setMovable(false);
   toolbar->setFloatable(false);
   toolbar->setIconSize(QSize(20, 20));
-  toolbar->setStyleSheet("QToolBar { background: #181825; border: none; padding: 8px; spacing: 8px; }");
 
   QWidget* spacer = new QWidget();
   spacer->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
@@ -136,13 +271,11 @@ void MainWindow::setupUi() {
   toolbar->addSeparator();
   
   QLabel* uidLabel = new QLabel("UID:", this);
-  uidLabel->setStyleSheet("color: #a6adc8; font-weight: 500;");
   toolbar->addWidget(uidLabel);
   
   m_uidInput->setPlaceholderText("Enter UID");
   m_uidInput->setText(QString::number(m_targetUid));
   m_uidInput->setFixedWidth(120);
-  m_uidInput->setStyleSheet("background: #313244; color: #cdd6f4; border: 1px solid #45475a; border-radius: 4px; padding: 4px 8px;");
   toolbar->addWidget(m_uidInput);
   
   m_crawlWeiboCheck->setChecked(m_crawlWeibo);
@@ -159,18 +292,17 @@ void MainWindow::setupUi() {
   toolbar->addWidget(spacer);
 
   QLabel* themeLabel = new QLabel("🎨 Theme:", this);
-  themeLabel->setStyleSheet("color: #a6adc8; font-weight: 500;");
   toolbar->addWidget(themeLabel);
   toolbar->addWidget(m_themeCombo);
 
   QLabel* layoutLabel = new QLabel("📊 Layout:", this);
-  layoutLabel->setStyleSheet("color: #a6adc8; font-weight: 500; margin-left: 16px;");
+  layoutLabel->setStyleSheet("margin-left: 16px;");
   toolbar->addWidget(layoutLabel);
   toolbar->addWidget(m_layoutCombo);
   toolbar->addWidget(m_applyLayoutBtn);
   
   QLabel* zoomLabel = new QLabel("🔍 Zoom:", this);
-  zoomLabel->setStyleSheet("color: #a6adc8; font-weight: 500; margin-left: 16px;");
+  zoomLabel->setStyleSheet("margin-left: 16px;");
   toolbar->addWidget(zoomLabel);
   
   QPushButton* zoomInBtn = new QPushButton("+", this);
@@ -220,13 +352,10 @@ void MainWindow::setupUi() {
   mainLayout->addWidget(m_logEdit);
 
   m_tabWidget->setStyleSheet(R"(
-    QTabWidget::pane { border: 1px solid #313244; border-radius: 8px; background: #181825; }
-    QTabBar::tab { background: #313244; color: #cdd6f4; padding: 8px 16px; border-top-left-radius: 6px; border-top-right-radius: 6px; }
-    QTabBar::tab:selected { background: #45475a; }
-    QTabBar::tab:hover { background: #45475a; }
+    QTabWidget::pane { border-radius: 8px; }
+    QTabBar::tab { padding: 8px 16px; border-top-left-radius: 6px; border-top-right-radius: 6px; }
   )");
-  
-  m_graphView->setStyleSheet("background: #181825; border: none; border-radius: 8px;");
+
   m_tabWidget->addTab(m_graphView, "🌐 Graph");
   
   QWidget* weiboTabContent = new QWidget(this);
@@ -549,6 +678,9 @@ void MainWindow::setupUi() {
 
   connect(m_startBtn, &QPushButton::clicked, this, &MainWindow::onStartClicked);
   connect(m_stopBtn, &QPushButton::clicked, this, &MainWindow::onStopClicked);
+
+  m_themeCombo->setCurrentIndex(m_currentTheme);
+  applyTheme(m_currentTheme);
 }
 
 void MainWindow::onStartClicked() {
@@ -1107,6 +1239,12 @@ void MainWindow::loadConfig() {
       if (obj.contains("target_uid")) {
         m_targetUid = obj["target_uid"].toVariant().toULongLong();
       }
+      if (obj.contains("theme_index")) {
+        int theme_index = obj["theme_index"].toInt(0);
+        if (theme_index >= 0 && theme_index < m_themes.size()) {
+          m_currentTheme = theme_index;
+        }
+      }
     }
   }
 }
@@ -1115,6 +1253,7 @@ void MainWindow::saveConfig() {
   QJsonObject obj;
   obj["crawl_weibo"] = m_crawlWeiboCheck->isChecked();
   obj["target_uid"] = QString::number(m_targetUid);
+  obj["theme_index"] = m_currentTheme;
   QJsonDocument doc(obj);
   QFile file("config.json");
   if (file.open(QIODevice::WriteOnly)) {

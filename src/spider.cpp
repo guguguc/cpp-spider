@@ -1,10 +1,12 @@
 #include "spider.hpp"
+#include "writer.hpp"
 #include <chrono>
 #include <cstdint>
 #include <fmt/core.h>
 #include <fstream>
 #include <httplib.h>
 #include <memory>
+#include <mongocxx/instance.hpp>
 #include <nlohmann/json.hpp>
 #include <spdlog/spdlog.h>
 #include <string>
@@ -14,7 +16,12 @@
 
 using json = nlohmann::json;
 
-Spider::Spider(uint64_t uid) : m_writer("mongodb://0.0.0.0:27017") {
+namespace {
+mongocxx::instance mongo_instance{};
+}
+
+Spider::Spider(uint64_t uid) {
+  m_writer = std::make_unique<MongoWriter>("mongodb://0.0.0.0:27017");
   m_visit_cnt = 0;
   m_crawlWeibo = true;
   m_crawlFans = true;
@@ -51,6 +58,8 @@ Spider::Spider(uint64_t uid) : m_writer("mongodb://0.0.0.0:27017") {
   m_client->enable_server_certificate_verification(false);
   m_client->set_keep_alive(true);
 }
+
+Spider::~Spider() = default;
 
 void Spider::setUserCallback(UserCallback callback) {
   m_userCallback = std::move(callback);
@@ -100,6 +109,11 @@ task:
   spdlog::info(url);
   try {
     httplib::Result resp = m_client->Get(url);
+    if (!resp) {
+      spdlog::error(fmt::format("HTTP request failed for {}", url));
+      std::this_thread::sleep_for(std::chrono::seconds(10));
+      goto task;
+    }
     auto json_resp = json::parse(resp->body);
     spdlog::info(json_resp.dump());
     if (!json_resp.contains("ok") || json_resp["ok"].get<int>() != 1) {
@@ -148,7 +162,12 @@ std::vector<User> Spider::get_self_follower() {
   const std::string url =
       fmt::format("/ajax/friendships/friends?uid={}&relate=fans&count=20&fansSortType=fansCount",
                   m_self.uid);
-  auto resp = json::parse(m_client->Get(url)->body);
+  auto result = m_client->Get(url);
+  if (!result) {
+    spdlog::error("HTTP request failed for self follower");
+    return {};
+  }
+  auto resp = json::parse(result->body);
   std::vector<json::basic_json::object_t> users = resp["users"];
   spdlog::info(fmt::format("self follower size:{}", users.size()));
   for (auto &item : users) {
@@ -167,7 +186,12 @@ std::vector<User> Spider::get_other_follower(uint64_t uid) {
         "/ajax/friendships/"
         "friends?relate=fans&page={}&uid={}&type=all&newFollowerCount=0",
         page_cnt, uid);
-    auto resp = json::parse(m_client->Get(url)->body);
+    auto result = m_client->Get(url);
+    if (!result) {
+      spdlog::error("HTTP request failed for other follower");
+      break;
+    }
+    auto resp = json::parse(result->body);
     int total_cnt = resp["display_total_number"].get<uint>();
     std::vector<json::basic_json::object_t> users = resp["users"];
     for (auto &user : users) {
@@ -204,7 +228,7 @@ void Spider::run() {
       m_weiboCallback(user.uid, user.weibo);
     }
   }
-  m_writer.write_one(user);
+  m_writer->write_one(user);
   // spdlog::info("write uid: {} to mongodb!", user.uid);
   // for (auto &item : user.followers) {
   //   if (!m_running) return;
@@ -236,7 +260,12 @@ std::vector<Weibo> Spider::get_weibo(const User &user) {
   while (m_running) {
     const std::string url = fmt::format(
         "/ajax/statuses/mymblog?uid={}&page={}&", user.uid, page_cnt);
-    auto resp = json::parse(m_client->Get(url)->body);
+    auto result = m_client->Get(url);
+    if (!result) {
+      spdlog::error("HTTP request failed for weibo");
+      break;
+    }
+    auto resp = json::parse(result->body);
     auto data = resp["data"];
     std::vector<json::basic_json::object_t> items = data["list"];
     if (items.empty()) {
@@ -274,4 +303,3 @@ std::vector<Weibo> Spider::get_weibo(const User &user) {
   }
   return weibos;
 }
-
