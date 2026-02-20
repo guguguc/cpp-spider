@@ -61,6 +61,48 @@ cpp-spider/
 └── headers.json
 ```
 
+## Architecture
+
+```
+MainWindow (GUI Thread)
+    │
+    ├─ creates ──► Spider (Worker Thread via QThread)
+    │                  │
+    │                  └─ callbacks ──► MongoWriter ──► MongoDB
+    │
+    └─ uses ──────► GraphLayout (static layout algorithms)
+```
+
+### Components
+
+| Component | Files | Responsibility |
+|-----------|-------|----------------|
+| **MainWindow** | `mainwindow.hpp/cpp` | GUI orchestration, graph visualization, tabs (graph, weibo list, video player, pictures, videos) |
+| **Spider** | `spider.hpp/cpp` | Crawling engine — HTTP requests to Weibo Ajax API, rate limiting, retry logic |
+| **MongoWriter** | `writer.hpp/cpp` | MongoDB connection and BSON document persistence |
+| **Weibo / User** | `weibo.hpp/cpp` | Data models for users and posts |
+| **GraphLayout** | `graph_layout.hpp` | Header-only layout algorithms (Force-Directed, Circular, Grid, Hierarchical, Kamada-Kawai, Random) |
+
+### Build Targets
+
+- `libspider.so` — shared library containing Spider, MongoWriter, and data models
+- `cpp-spider` — Qt6 GUI executable, links against `libspider`
+
+### Threading Model
+
+- **Main thread**: Qt event loop, rendering, user interaction
+- **Worker thread**: `Spider::run()` executes HTTP requests and JSON parsing
+- **Detached threads**: async image loading with cache
+- **Thread communication**: `QMetaObject::invokeMethod` with `Qt::QueuedConnection`
+
+### Data Flow
+
+1. User enters target UID and crawl options in MainWindow
+2. Spider runs in a worker thread, fetching data from Weibo Ajax endpoints
+3. Callbacks push UI updates back to the main thread via queued invocations
+4. MongoWriter persists crawled data to MongoDB (`weibo.user` collection)
+5. GraphLayout positions nodes for the interactive relationship graph
+
 ## Prerequisites
 
 - CMake 3.15+
