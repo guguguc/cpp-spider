@@ -25,6 +25,7 @@ public:
   void setCrawlWeibo(bool crawl);
   void setCrawlFans(bool crawl);
   void setCrawlFollowers(bool crawl);
+
   void stop();
   bool isRunning() const { return m_running; }
   User get_user(uint64_t uid, bool get_follower=false);
@@ -48,6 +49,7 @@ private:
   bool m_crawlFans;
   bool m_crawlFollowers;
   bool m_running;
+
 };
 
 #endif  // SPIDER

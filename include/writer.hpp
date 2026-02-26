@@ -1,4 +1,3 @@
-
 #ifndef MONGOWRITER
 #define MONGOWRITER
 
@@ -12,6 +11,7 @@
 #include <mongocxx/instance.hpp>
 #include <spdlog/spdlog.h>
 #include <string>
+#include <set>
 #include "weibo.hpp"
 
 class MongoWriter {
@@ -19,6 +19,11 @@ public:
   MongoWriter(const std::string &uri);
   void write_one(const User &user);
   void write_many(const std::vector<User> &users);
+
+  // Incremental crawl support
+  bool user_exists(uint64_t uid);
+  uint64_t get_latest_weibo_id(uint64_t uid);
+  std::set<uint64_t> get_stored_weibo_ids(uint64_t uid);
 
 private:
   mongocxx::client m_client;

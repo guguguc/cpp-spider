@@ -10,6 +10,7 @@
 #include <nlohmann/json.hpp>
 #include <spdlog/spdlog.h>
 #include <string>
+#include <set>
 #include <sys/types.h>
 #include <thread>
 #include <utility>
@@ -80,6 +81,7 @@ void Spider::setCrawlFans(bool crawl) {
 void Spider::setCrawlFollowers(bool crawl) {
   m_crawlFollowers = crawl;
 }
+
 
 void Spider::stop() {
   m_running = false;
@@ -222,27 +224,16 @@ void Spider::run() {
   User user = get_user(m_self.uid, true);
   spdlog::info("get user");
   if (!m_running) return;
+
   if (m_crawlWeibo) {
     user.set_weibo(get_weibo(user));
     if (m_weiboCallback) {
       m_weiboCallback(user.uid, user.weibo);
     }
   }
+
   m_writer->write_one(user);
-  // spdlog::info("write uid: {} to mongodb!", user.uid);
-  // for (auto &item : user.followers) {
-  //   if (!m_running) return;
-  //   auto followers = get_other_follower(item.uid);
-  //   item.followers = followers;
-  //   if (m_crawlWeibo) {
-  //     item.set_weibo(get_weibo(item));
-  //     if (m_weiboCallback) {
-  //       m_weiboCallback(item.uid, item.weibo);
-  //     }
-  //   }
-  //   m_writer.write_one(item);
   spdlog::info("write uid: {} to mongodb!", user.uid);
-  // }
 }
 
 std::vector<User> Spider::batch_get_user(const std::vector<uint64_t> &ids) {
@@ -257,7 +248,15 @@ std::vector<User> Spider::batch_get_user(const std::vector<uint64_t> &ids) {
 std::vector<Weibo> Spider::get_weibo(const User &user) {
   int page_cnt = 1;
   std::vector<Weibo> weibos;
-  while (m_running) {
+
+  // Load existing weibo IDs to skip already-stored posts
+  std::set<uint64_t> existing_ids = m_writer->get_stored_weibo_ids(user.uid);
+  spdlog::info(fmt::format(
+      "{} existing weibos in db for uid {}",
+      existing_ids.size(), user.uid));
+
+  bool hit_existing = false;
+  while (m_running && !hit_existing) {
     const std::string url = fmt::format(
         "/ajax/statuses/mymblog?uid={}&page={}&", user.uid, page_cnt);
     auto result = m_client->Get(url);
@@ -275,6 +274,15 @@ std::vector<Weibo> Spider::get_weibo(const User &user) {
        std::string tm = item["created_at"].get<std::string>();
        std::string text = item["text"].get<std::string>();
        uint64_t id = item["id"].get<uint64_t>();
+
+       // Stop when we hit an already-stored weibo
+       if (existing_ids.count(id)) {
+         spdlog::info(fmt::format(
+             "hit existing weibo id , stopping", id));
+         hit_existing = true;
+         break;
+       }
+
        std::vector<std::string> urls;
        if (item.count("pic_infos")) {
          const auto& pic_infos = item["pic_infos"];
@@ -301,5 +309,8 @@ std::vector<Weibo> Spider::get_weibo(const User &user) {
     page_cnt += 1;
     std::this_thread::sleep_for(std::chrono::seconds(2));
   }
+  spdlog::info(fmt::format(
+      "weibo crawl done: {} new weibos for uid {}",
+      weibos.size(), user.uid));
   return weibos;
 }
