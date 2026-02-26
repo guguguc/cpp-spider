@@ -33,12 +33,19 @@ target_link_libraries(spider PRIVATE OpenSSL::SSL OpenSSL::Crypto spdlog::spdlog
 add_executable(cpp-spider
   src/main.cpp
   src/mainwindow.cpp
+  src/mainwindow_ui.cpp
+  src/mainwindow_graph.cpp
+  src/mainwindow_spider.cpp
+  src/mainwindow_media.cpp
+  src/log_panel.cpp
   include/mainwindow.hpp
   include/graph_layout.hpp
+  include/log_panel.hpp
+  include/qt_log_sink.hpp
 )
 
 target_include_directories(cpp-spider PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
 
 target_compile_definitions(cpp-spider PRIVATE CPPHTTPLIB_OPENSSL_SUPPORT)
 
-target_link_libraries(cpp-spider PRIVATE Qt6::Widgets Qt6::Network Qt6::MultimediaWidgets OpenSSL::SSL OpenSSL::Crypto fmt::fmt spider)
+target_link_libraries(cpp-spider PRIVATE Qt6::Widgets Qt6::Network Qt6::MultimediaWidgets OpenSSL::SSL OpenSSL::Crypto fmt::fmt spdlog::spdlog_header_only spider)

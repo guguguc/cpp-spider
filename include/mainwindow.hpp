@@ -2,6 +2,7 @@
 #define MAINWINDOW_HPP
 
 #include "graph_layout.hpp"
+#include "log_panel.hpp"
 #include <httplib.h>
 
 #include <QMainWindow>
@@ -160,6 +161,7 @@ private slots:
    void onStartClicked();
    void onStopClicked();
    void appendLog(const QString& message);
+   void appendSpiderLog(int level, const QString& message);
    void onUserFetched(uint64_t uid, const QString& name, const QList<uint64_t>& followers, const QList<uint64_t>& fans);
    void onWeiboFetched(uint64_t uid, const QString& weibo);
    void onLayoutChanged(int index);
@@ -172,6 +174,7 @@ private slots:
 
 private:
    void setupUi();
+   void setupLogSink();
    void runSpider();
    void loadConfig();
    void addUserNode(uint64_t uid, const QString& name, const QList<uint64_t>& followers, const QList<uint64_t>& fans);
@@ -183,10 +186,11 @@ private:
    void updateNodePositions(const QMap<uint64_t, QPointF>& newPositions);
    void downloadVideo(const QString& videoUrl, QWidget* parent);
    void saveAllPictures(const QList<QString>& picUrls, QWidget* parent);
+   void loadImageAsync(const QString& picUrl, QLabel* picLabel, int maxSize);
 
   QPushButton* m_startBtn;
   QPushButton* m_stopBtn;
-  QTextEdit* m_logEdit;
+  LogPanel* m_logPanel;
   ZoomGraphicsView* m_graphView;
   QGraphicsScene* m_graphScene;
   QCheckBox* m_crawlWeiboCheck;
