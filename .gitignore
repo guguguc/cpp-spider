@@ -1,0 +1,13 @@
+# Build
+build/
+compile_commands.json
+
+# IDE / Editor
+.cache/
+.clangd
+.vscode/
+
+# Config with secrets
+cookie.json
+headers.json
+config.json
