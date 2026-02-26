@@ -1,0 +1,11 @@
+{
+  "mongo_url": "mongodb://0.0.0.0:27017",
+  "mongo_db": "weibo",
+  "mongo_collection": "user",
+  "cookie_path": "cookie.json",
+  "headers_path": "headers.json",
+  "config_path": "config.json",
+  "weibo_host": "https://www.weibo.com",
+  "image_host": "https://weibo.com",
+  "default_uid": 6126303533
+}

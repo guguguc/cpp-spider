@@ -16,7 +16,9 @@
 
 class MongoWriter {
 public:
-  MongoWriter(const std::string &uri);
+  MongoWriter(const std::string &uri,
+              const std::string &db_name = "weibo",
+              const std::string &collection_name = "user");
   void write_one(const User &user);
   void write_many(const std::vector<User> &users);
 

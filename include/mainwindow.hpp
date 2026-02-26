@@ -3,6 +3,7 @@
 
 #include "graph_layout.hpp"
 #include "log_panel.hpp"
+#include "app_config.hpp"
 #include <httplib.h>
 
 #include <QMainWindow>
@@ -188,6 +189,7 @@ private:
    void saveAllPictures(const QList<QString>& picUrls, QWidget* parent);
    void loadImageAsync(const QString& picUrl, QLabel* picLabel, int maxSize);
 
+  AppConfig m_appConfig;
   QPushButton* m_startBtn;
   QPushButton* m_stopBtn;
   LogPanel* m_logPanel;

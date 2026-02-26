@@ -8,23 +8,25 @@
 #include <mongocxx/options/index.hpp>
 #include <fmt/core.h>
 #include <string>
-MongoWriter::MongoWriter(const std::string &uri)
+MongoWriter::MongoWriter(const std::string &uri,
+                         const std::string &db_name,
+                         const std::string &collection_name)
 {
   mongocxx::options::client client_option;
   auto api = mongocxx::options::server_api{mongocxx::options::server_api::version::k_version_1};
   client_option.server_api_opts(api);
   m_client = mongocxx::client{mongocxx::uri(uri), client_option};
   auto dbs = m_client.list_database_names();
-  if (std::find(dbs.begin(), dbs.end(), "weibo") == dbs.end())
+  if (std::find(dbs.begin(), dbs.end(), db_name) == dbs.end())
   {
-    m_client["weibo"];
+    m_client[db_name];
   }
-  m_db = m_client["weibo"];
+  m_db = m_client[db_name];
   auto collections = m_db.list_collection_names();
-  if (std::find(collections.begin(), collections.end(), "user") == collections.end()) {
-    m_db.create_collection("user");
+  if (std::find(collections.begin(), collections.end(), collection_name) == collections.end()) {
+    m_db.create_collection(collection_name);
   }
-  m_collection = m_db["user"];
+  m_collection = m_db[collection_name];
 
   // Ensure uid unique index to prevent duplicate documents
   using bsoncxx::builder::basic::kvp;

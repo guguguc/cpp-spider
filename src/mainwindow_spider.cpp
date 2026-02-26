@@ -64,7 +64,7 @@ void MainWindow::runSpider() {
 
   QThread* thread = QThread::create([this, crawlFans, crawlFollowers]() {
     try {
-      m_spider = std::make_unique<Spider>(m_targetUid);
+      m_spider = std::make_unique<Spider>(m_targetUid, m_appConfig);
       m_spider->setCrawlWeibo(m_crawlWeibo);
       m_spider->setCrawlFans(crawlFans);
       m_spider->setCrawlFollowers(crawlFollowers);
@@ -131,7 +131,7 @@ void MainWindow::updateWeiboStats(int totalWeibo, int totalVideo) {
 }
 
 void MainWindow::loadConfig() {
-  QFile file("config.json");
+  QFile file(QString::fromStdString(m_appConfig.config_path));
   if (file.open(QIODevice::ReadOnly)) {
     QByteArray data = file.readAll();
     file.close();
@@ -157,7 +157,7 @@ void MainWindow::saveConfig() {
   obj["target_uid"] = QString::number(m_targetUid);
   obj["theme_index"] = m_currentTheme;
   QJsonDocument doc(obj);
-  QFile file("config.json");
+  QFile file(QString::fromStdString(m_appConfig.config_path));
   if (file.open(QIODevice::WriteOnly)) {
     file.write(doc.toJson(QJsonDocument::Indented));
     file.close();
@@ -165,7 +165,7 @@ void MainWindow::saveConfig() {
 }
 
 std::string MainWindow::loadCookies() {
-  std::ifstream cookie_ifs("/home/gugugu/Repo/cpp-spider/cookie.json");
+  std::ifstream cookie_ifs(m_appConfig.cookie_path);
   if (!cookie_ifs.is_open()) return "";
   using json = nlohmann::json;
   json json_cookie = json::parse(cookie_ifs);

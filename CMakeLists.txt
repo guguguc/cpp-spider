@@ -19,9 +19,11 @@ add_library(spider SHARED
   src/spider.cpp
   src/weibo.cpp
   src/writer.cpp
+  src/app_config.cpp
   include/spider.hpp
   include/weibo.hpp
   include/writer.hpp
+  include/app_config.hpp
 )
 
 target_include_directories(spider PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)

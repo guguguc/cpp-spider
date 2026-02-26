@@ -21,18 +21,18 @@ namespace {
 mongocxx::instance mongo_instance{};
 }
 
-Spider::Spider(uint64_t uid) {
-  m_writer = std::make_unique<MongoWriter>("mongodb://0.0.0.0:27017");
+Spider::Spider(uint64_t uid, const AppConfig &config) {
+  m_writer = std::make_unique<MongoWriter>(config.mongo_url, config.mongo_db, config.mongo_collection);
   m_visit_cnt = 0;
   m_crawlWeibo = true;
   m_crawlFans = true;
   m_crawlFollowers = true;
   m_running = false;
   m_self = User(uid, "", std::vector<User>());
-  m_client = std::make_unique<httplib::Client>("https://www.weibo.com");
+  m_client = std::make_unique<httplib::Client>(config.weibo_host);
   httplib::Headers header;
 
-  std::ifstream cookie_ifs("/home/gugugu/Repo/cpp-spider/cookie.json");
+  std::ifstream cookie_ifs(config.cookie_path);
   json json_cookie = json::parse(cookie_ifs);
   std::string cookie;
   for (json::iterator it = json_cookie.begin(); it != json_cookie.end();
@@ -44,7 +44,7 @@ Spider::Spider(uint64_t uid) {
   }
   header.insert(std::make_pair("Cookie", cookie));
 
-  std::ifstream headers_ifs("/home/gugugu/Repo/cpp-spider/headers.json");
+  std::ifstream headers_ifs(config.headers_path);
   json json_headers = json::parse(headers_ifs);
   for (json::iterator it = json_headers.begin(); it != json_headers.end();
        ++it) {

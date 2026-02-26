@@ -6,6 +6,7 @@
 #include <memory>
 #include <vector>
 #include <httplib.h>
+#include "app_config.hpp"
 #include "weibo.hpp"
 
 
@@ -18,7 +19,7 @@ public:
                                            const std::vector<uint64_t>& fans)>;
   using WeiboCallback = std::function<void(uint64_t uid, const std::vector<Weibo>& weibos)>;
 
-  explicit Spider(uint64_t user_id);
+  explicit Spider(uint64_t user_id, const AppConfig &config);
   ~Spider();
   void setUserCallback(UserCallback callback);
   void setWeiboCallback(WeiboCallback callback);

@@ -5,6 +5,7 @@
 
 MainWindow::MainWindow(QWidget* parent)
     : QMainWindow(parent)
+    , m_appConfig(AppConfig::load())
     , m_startBtn(new QPushButton("▶ Start", this))
     , m_stopBtn(new QPushButton("■ Stop", this))
     , m_logPanel(new LogPanel(this))
@@ -21,14 +22,14 @@ MainWindow::MainWindow(QWidget* parent)
     , m_tabWidget(new QTabWidget(this))
     , m_running(false)
     , m_crawlWeibo(true)
-    , m_targetUid(6126303533)
+    , m_targetUid(m_appConfig.default_uid)
    , m_nodeCount(0)
    , m_currentTheme(0)
    , m_activeDownloads(0)
    , m_videoWidget(nullptr)
    , m_weiboScroll(nullptr)
    , m_weiboContainer(nullptr) {
-  m_imageClient = std::make_unique<httplib::Client>("https://weibo.com");
+  m_imageClient = std::make_unique<httplib::Client>(m_appConfig.image_host);
   m_imageClient->set_follow_location(true);
   m_imageClient->set_decompress(true);
   m_imageClient->set_keep_alive(true);
