@@ -1,7 +1,10 @@
 #include "mainwindow.hpp"
+#include "spider.hpp"
+#include <algorithm>
 #include <QBoxLayout>
 #include <QLabel>
 #include <QGridLayout>
+#include <QPointer>
 #include <QScrollArea>
 #include <QTimer>
 #include <QFileDialog>
@@ -13,8 +16,57 @@
 #include <httplib.h>
 #include <fmt/core.h>
 #include <nlohmann/json.hpp>
+#include <spdlog/spdlog.h>
+
+void MainWindow::ensureWeibosLoaded(uint64_t uid) {
+  {
+    std::lock_guard<std::mutex> lock(m_weiboMutex);
+    if (m_weibos.contains(uid) && !m_weibos[uid].empty()) {
+      return;
+    }
+  }
+
+  try {
+    std::vector<Weibo> db_weibos = load_weibos_from_db(m_appConfig, uid);
+    if (db_weibos.empty()) {
+      appendLog(QString("No weibo found in DB for uid %1").arg(uid));
+      return;
+    }
+
+    std::vector<WeiboData> cache;
+    cache.reserve(db_weibos.size());
+    for (const auto &w : db_weibos) {
+      WeiboData data;
+      data.timestamp = QString::fromStdString(w.timestamp);
+      data.text = QString::fromStdString(w.text);
+      data.pics = w.pics;
+      data.video_url = w.video_url;
+      cache.push_back(std::move(data));
+    }
+    {
+      std::lock_guard<std::mutex> lock(m_weiboMutex);
+      m_weibos[uid] = std::move(cache);
+    }
+    appendLog(QString("Loaded %1 weibos from DB for uid %2")
+                  .arg(static_cast<int>(db_weibos.size()))
+                  .arg(uid));
+  } catch (const std::exception &e) {
+    appendLog(QString("Failed to load weibos from DB for uid %1: %2")
+                  .arg(uid)
+                  .arg(e.what()));
+    spdlog::error(fmt::format("load weibos from db failed, uid={}, error={}", uid, e.what()));
+  }
+}
 
 void MainWindow::showNodeWeibo(uint64_t uid) {
+  const int weibo_page_size = 40;
+
+  if (m_currentWeiboUid != uid) {
+    m_currentWeiboUid = uid;
+    m_weiboCurrentPage = 0;
+  }
+
+  ensureWeibosLoaded(uid);
   m_tabWidget->setCurrentIndex(1);
   
   if (!m_weiboScroll || !m_weiboContainer) return;
@@ -48,7 +100,15 @@ void MainWindow::showNodeWeibo(uint64_t uid) {
   uidLabel->setTextFormat(Qt::RichText);
   headerLayout->addWidget(uidLabel);
 
-  if (m_weibos.contains(uid) && !m_weibos[uid].empty()) {
+  std::vector<WeiboData> weibos;
+  {
+    std::lock_guard<std::mutex> lock(m_weiboMutex);
+    if (m_weibos.contains(uid)) {
+      weibos = m_weibos[uid];
+    }
+  }
+
+  if (!weibos.empty()) {
     QHBoxLayout* actionButtonLayout = new QHBoxLayout();
     actionButtonLayout->setContentsMargins(0, 8, 0, 0);
     actionButtonLayout->setSpacing(8);
@@ -78,9 +138,78 @@ void MainWindow::showNodeWeibo(uint64_t uid) {
 
   layout->addWidget(headerWidget);
 
-  if (m_weibos.contains(uid) && !m_weibos[uid].empty()) {
-    const auto& weibos = m_weibos[uid];
-    for (const WeiboData& weibo : weibos) {
+  const size_t total_count = weibos.size();
+  const size_t start_index = std::min(
+      static_cast<size_t>(m_weiboCurrentPage * weibo_page_size),
+      total_count);
+  const size_t end_index = std::min(start_index + static_cast<size_t>(weibo_page_size), total_count);
+  const size_t render_count = end_index > start_index ? end_index - start_index : 0;
+
+  if (total_count > 0) {
+    QLabel* limitLabel = new QLabel(
+        QString("Showing %1-%2 of %3 weibos")
+            .arg(render_count > 0 ? static_cast<int>(start_index + 1) : 0)
+            .arg(static_cast<int>(end_index))
+            .arg(static_cast<int>(total_count)),
+        m_weiboContainer);
+    limitLabel->setStyleSheet(
+        "color: #f9e2af; background: #313244; border: 1px solid #45475a; border-radius: 8px; padding: 8px 12px;");
+    layout->addWidget(limitLabel);
+
+    QWidget* pagerWidget = new QWidget(m_weiboContainer);
+    QHBoxLayout* pagerLayout = new QHBoxLayout(pagerWidget);
+    pagerLayout->setContentsMargins(0, 0, 0, 0);
+    pagerLayout->setSpacing(8);
+
+    QPushButton* prevBtn = new QPushButton("Prev Page", pagerWidget);
+    prevBtn->setStyleSheet(
+        "QPushButton { background: #45475a; color: #cdd6f4; border: 1px solid #6c7086; padding: 6px 12px; border-radius: 6px; } "
+        "QPushButton:hover { background: #585b70; }");
+    prevBtn->setEnabled(m_weiboCurrentPage > 0);
+    connect(prevBtn, &QPushButton::clicked, [this, uid]() {
+      if (m_weiboCurrentPage > 0) {
+        m_weiboCurrentPage -= 1;
+        QMetaObject::invokeMethod(this, "showNodeWeibo", Qt::QueuedConnection,
+                                  Q_ARG(uint64_t, uid));
+      }
+    });
+    pagerLayout->addWidget(prevBtn);
+
+    QPushButton* nextBtn = new QPushButton(
+        QString("Next Page (%1)").arg(weibo_page_size),
+        pagerWidget);
+    nextBtn->setStyleSheet(
+        "QPushButton { background: #89b4fa; color: #1e1e2e; border: 1px solid #89b4fa; padding: 6px 12px; border-radius: 6px; font-weight: bold; } "
+        "QPushButton:hover { background: #b4befe; border: 1px solid #b4befe; }");
+    nextBtn->setEnabled(end_index < total_count);
+    connect(nextBtn, &QPushButton::clicked, [this, uid, end_index, total_count]() {
+      if (end_index < total_count) {
+        m_weiboCurrentPage += 1;
+        QMetaObject::invokeMethod(this, "showNodeWeibo", Qt::QueuedConnection,
+                                  Q_ARG(uint64_t, uid));
+      }
+    });
+    pagerLayout->addWidget(nextBtn);
+
+    QPushButton* firstPageBtn = new QPushButton("First Page", pagerWidget);
+    firstPageBtn->setStyleSheet(
+        "QPushButton { background: #45475a; color: #cdd6f4; border: 1px solid #6c7086; padding: 6px 12px; border-radius: 6px; } "
+        "QPushButton:hover { background: #585b70; }");
+    firstPageBtn->setEnabled(m_weiboCurrentPage > 0);
+    connect(firstPageBtn, &QPushButton::clicked, [this, uid]() {
+      m_weiboCurrentPage = 0;
+      QMetaObject::invokeMethod(this, "showNodeWeibo", Qt::QueuedConnection,
+                                Q_ARG(uint64_t, uid));
+    });
+    pagerLayout->addWidget(firstPageBtn);
+
+    pagerLayout->addStretch();
+    layout->addWidget(pagerWidget);
+  }
+
+  if (!weibos.empty()) {
+    for (size_t idx = start_index; idx < end_index; ++idx) {
+      const WeiboData& weibo = weibos[idx];
       QWidget* cardWidget = new QWidget(m_weiboContainer);
       cardWidget->setStyleSheet(
         "QWidget { background: #313244; border-radius: 10px; border: 1px solid #45475a; } "
@@ -177,24 +306,6 @@ void MainWindow::showNodeWeibo(uint64_t uid) {
           });
         });
         
-        connect(m_videoTabPlayer.get(), &QMediaPlayer::playbackStateChanged, [videoStatus](QMediaPlayer::PlaybackState state) {
-          if (state == QMediaPlayer::PlayingState) videoStatus->setText("Playing");
-          else if (state == QMediaPlayer::StoppedState) videoStatus->setText("Ready");
-          else if (state == QMediaPlayer::PausedState) videoStatus->setText("Paused");
-        });
-        connect(m_videoTabPlayer.get(), &QMediaPlayer::mediaStatusChanged, [videoStatus](QMediaPlayer::MediaStatus status) {
-          switch (status) {
-            case QMediaPlayer::LoadedMedia: videoStatus->setText("Ready"); break;
-            case QMediaPlayer::LoadingMedia: videoStatus->setText("Loading..."); break;
-            case QMediaPlayer::BufferingMedia: videoStatus->setText("Buffering..."); break;
-            case QMediaPlayer::StalledMedia: videoStatus->setText("Stalled"); break;
-            case QMediaPlayer::InvalidMedia: videoStatus->setText("Error: Invalid"); break;
-            default: break;
-          }
-        });
-        connect(m_videoTabPlayer.get(), &QMediaPlayer::errorOccurred, [videoStatus](QMediaPlayer::Error error, const QString& errorString) {
-          videoStatus->setText(QString("Error: %1").arg(errorString));
-        });
       }
 
       layout->addWidget(cardWidget);
@@ -227,7 +338,8 @@ static std::pair<std::string, std::string> splitUrl(const std::string& url) {
 }
 
 void MainWindow::loadImageAsync(const QString& picUrl, QLabel* picLabel, int maxSize) {
-  std::thread([this, picUrl, picLabel, maxSize]() {
+  QPointer<QLabel> safeLabel(picLabel);
+  std::thread([this, picUrl, safeLabel, maxSize]() {
     while (m_activeDownloads.load() >= MAX_CONCURRENT_DOWNLOADS)
       std::this_thread::sleep_for(std::chrono::milliseconds(100));
     m_activeDownloads++;
@@ -243,10 +355,10 @@ void MainWindow::loadImageAsync(const QString& picUrl, QLabel* picLabel, int max
         QPixmap pixmap;
         if (pixmap.loadFromData(reinterpret_cast<const uchar*>(res->body.c_str()), res->body.size())) {
           m_imageCache[picUrl] = pixmap;
-          QMetaObject::invokeMethod(this, [picLabel, pixmap, maxSize]() {
-            if (picLabel) {
-              picLabel->setPixmap(pixmap.scaled(maxSize, maxSize, Qt::KeepAspectRatio, Qt::SmoothTransformation));
-              picLabel->setStyleSheet("border-radius: 8px; border: 2px solid #45475a; background: #1e1e2e;");
+          QMetaObject::invokeMethod(this, [safeLabel, pixmap, maxSize]() {
+            if (safeLabel) {
+              safeLabel->setPixmap(pixmap.scaled(maxSize, maxSize, Qt::KeepAspectRatio, Qt::SmoothTransformation));
+              safeLabel->setStyleSheet("border-radius: 8px; border: 2px solid #45475a; background: #1e1e2e;");
             }
           });
         }
@@ -329,7 +441,15 @@ void MainWindow::showAllPictures(uint64_t uid) {
   m_currentPictureUid = uid;
   m_currentPictureUrls.clear();
 
-  if (!m_weibos.contains(uid)) {
+  std::vector<WeiboData> weibos;
+  {
+    std::lock_guard<std::mutex> lock(m_weiboMutex);
+    if (m_weibos.contains(uid)) {
+      weibos = m_weibos[uid];
+    }
+  }
+
+  if (weibos.empty()) {
     m_picTabCountLabel->setText("Total: 0");
     QLabel* noDataLabel = new QLabel("<p style='color: #6c7086; text-align: center; font-size: 14px;'>📭 No weibo data for this user.</p>", m_picTabContainer);
     noDataLabel->setTextFormat(Qt::RichText);
@@ -339,7 +459,7 @@ void MainWindow::showAllPictures(uint64_t uid) {
   }
 
   QList<QString> allPictures;
-  for (const WeiboData& weibo : m_weibos[uid])
+  for (const WeiboData& weibo : weibos)
     for (const std::string& picStr : weibo.pics)
       allPictures.append(QString::fromStdString(picStr));
 
@@ -445,7 +565,15 @@ void MainWindow::showAllVideos(uint64_t uid) {
   m_currentVideoListUid = uid;
   m_currentVideoUrls.clear();
 
-  if (!m_weibos.contains(uid)) {
+  std::vector<WeiboData> weibos;
+  {
+    std::lock_guard<std::mutex> lock(m_weiboMutex);
+    if (m_weibos.contains(uid)) {
+      weibos = m_weibos[uid];
+    }
+  }
+
+  if (weibos.empty()) {
     m_videoListTabCountLabel->setText("Total: 0");
     QLabel* noDataLabel = new QLabel("<p style='color: #6c7086;'>No weibo data for this user.</p>", m_videoListTabContainer);
     noDataLabel->setTextFormat(Qt::RichText);
@@ -457,7 +585,7 @@ void MainWindow::showAllVideos(uint64_t uid) {
   QList<QString> allVideos;
   QMap<QString, QString> videoTimestamps, videoTexts;
 
-  for (const WeiboData& weibo : m_weibos[uid]) {
+  for (const WeiboData& weibo : weibos) {
     if (!weibo.video_url.empty() && weibo.video_url.find("http") == 0) {
       QString videoUrl = QString::fromStdString(weibo.video_url);
       allVideos.append(videoUrl);

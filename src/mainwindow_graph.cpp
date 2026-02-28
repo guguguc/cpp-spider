@@ -1,4 +1,7 @@
 #include "mainwindow.hpp"
+#include <algorithm>
+#include <QMenu>
+#include <QMessageBox>
 #include <QPainterPath>
 #include <QPen>
 #include <QRandomGenerator>
@@ -13,35 +16,78 @@ QPointF MainWindow::getRandomPosition() {
 }
 
 void MainWindow::addUserNode(uint64_t uid, const QString& name, const QList<uint64_t>& followers, const QList<uint64_t>& fans) {
-  if (m_nodes.contains(uid)) return;
+  if (!followers.isEmpty() || !m_followersByUid.contains(uid)) {
+    m_followersByUid[uid] = followers;
+  }
+  if (!fans.isEmpty() || !m_fansByUid.contains(uid)) {
+    m_fansByUid[uid] = fans;
+  }
 
-  QPointF pos = getRandomPosition();
-  m_positions[uid] = pos;
-  m_nodeCount++;
-
-  NodeItem* node = new NodeItem(-20, -20, 40, 40);
-  node->setPos(pos);
-  node->setUid(uid);
-  node->setClickCallback([this](uint64_t clickedUid) {
-    QMetaObject::invokeMethod(this, "showNodeWeibo", Qt::QueuedConnection, Q_ARG(uint64_t, clickedUid));
-  });
-  m_graphScene->addItem(node);
-  m_nodes[uid] = node;
-
-  QGraphicsTextItem* label = new QGraphicsTextItem(name.isEmpty() ? QString::number(uid) : name);
   const Theme& theme = m_themes[m_currentTheme];
-  label->setDefaultTextColor(theme.text);
-  label->setPos(pos.x() - 30, pos.y() + 25);
-  m_graphScene->addItem(label);
-  m_labels[uid] = label;
-  node->setLabel(label);
-  node->setTheme(theme);
+
+  auto ensure_node = [this, &theme](uint64_t node_uid, const QString &node_name) {
+    NodeItem* node = nullptr;
+    if (!m_nodes.contains(node_uid)) {
+      QPointF pos = getRandomPosition();
+      m_positions[node_uid] = pos;
+      m_nodeCount++;
+
+      node = new NodeItem(-20, -20, 40, 40);
+      node->setPos(pos);
+      node->setUid(node_uid);
+      node->setClickCallback([this](uint64_t clickedUid) {
+        QMetaObject::invokeMethod(this, "showNodeWeibo", Qt::QueuedConnection,
+                                  Q_ARG(uint64_t, clickedUid));
+      });
+      node->setContextMenuCallback([this](uint64_t clickedUid, const QPoint& screenPos) {
+        showNodeContextMenu(clickedUid, screenPos);
+      });
+      m_graphScene->addItem(node);
+      m_nodes[node_uid] = node;
+
+      QGraphicsTextItem* label = new QGraphicsTextItem(
+          node_name.isEmpty() ? QString::number(node_uid) : node_name);
+      label->setDefaultTextColor(theme.text);
+      label->setPos(pos.x() - 30, pos.y() + 25);
+      m_graphScene->addItem(label);
+      m_labels[node_uid] = label;
+      node->setLabel(label);
+      node->setTheme(theme);
+    } else {
+      node = m_nodes[node_uid];
+      node->setTheme(theme);
+      if (!node_name.isEmpty() && m_labels.contains(node_uid)) {
+        const QString current = m_labels[node_uid]->toPlainText();
+        if (current == QString::number(node_uid)) {
+          m_labels[node_uid]->setPlainText(node_name);
+        }
+      }
+    }
+    return node;
+  };
+
+  NodeItem* node = ensure_node(uid, name);
+  QPointF pos = node->pos();
+
+  auto add_undirected_adj = [this](uint64_t a, uint64_t b) {
+    auto &av = m_adjacency[a];
+    if (std::find(av.begin(), av.end(), b) == av.end()) {
+      av.push_back(b);
+    }
+    auto &bv = m_adjacency[b];
+    if (std::find(bv.begin(), bv.end(), a) == bv.end()) {
+      bv.push_back(a);
+    }
+  };
 
   for (uint64_t follower_id : followers) {
-    m_adjacency[uid].push_back(follower_id);
-    m_adjacency[follower_id].push_back(uid);
-    if (m_nodes.contains(follower_id)) {
-      NodeItem* otherNode = m_nodes[follower_id];
+    if (follower_id == uid) {
+      continue;
+    }
+    add_undirected_adj(uid, follower_id);
+    NodeItem* otherNode = ensure_node(follower_id, QString());
+    uint64_t lineKey = uid * 1000000 + follower_id;
+    if (!m_lines.contains(lineKey)) {
       QPointF endPos = otherNode->pos();
       QPainterPath path;
       path.moveTo(pos);
@@ -51,7 +97,6 @@ void MainWindow::addUserNode(uint64_t uid, const QString& name, const QList<uint
       QGraphicsPathItem* line = new QGraphicsPathItem(path);
       line->setPen(QPen(theme.followerLine, 1.5));
       m_graphScene->addItem(line);
-      uint64_t lineKey = uid * 1000000 + follower_id;
       m_lines[lineKey] = line;
       m_lineIsFollower[lineKey] = true;
       node->addLine(line, otherNode);
@@ -60,8 +105,13 @@ void MainWindow::addUserNode(uint64_t uid, const QString& name, const QList<uint
   }
 
   for (uint64_t fan_id : fans) {
-    if (m_nodes.contains(fan_id)) {
-      NodeItem* otherNode = m_nodes[fan_id];
+    if (fan_id == uid) {
+      continue;
+    }
+    add_undirected_adj(uid, fan_id);
+    NodeItem* otherNode = ensure_node(fan_id, QString());
+    uint64_t lineKey = uid * 1000000 + fan_id;
+    if (!m_lines.contains(lineKey)) {
       QPointF endPos = otherNode->pos();
       QPainterPath path;
       path.moveTo(pos);
@@ -71,7 +121,6 @@ void MainWindow::addUserNode(uint64_t uid, const QString& name, const QList<uint
       QGraphicsPathItem* line = new QGraphicsPathItem(path);
       line->setPen(QPen(theme.fanLine, 1.5));
       m_graphScene->addItem(line);
-      uint64_t lineKey = uid * 1000000 + fan_id;
       m_lines[lineKey] = line;
       m_lineIsFollower[lineKey] = false;
       node->addLine(line, otherNode);
@@ -82,6 +131,44 @@ void MainWindow::addUserNode(uint64_t uid, const QString& name, const QList<uint
   QMetaObject::invokeMethod(this, "appendLog", Qt::QueuedConnection,
                             Q_ARG(QString, QString("Added node: %1 (%2) followers:%3 fans:%4")
                                   .arg(name).arg(uid).arg(followers.size()).arg(fans.size())));
+}
+
+void MainWindow::showNodeContextMenu(uint64_t uid, const QPoint& screenPos) {
+  QMenu menu(this);
+  QAction* viewFollowers = menu.addAction("View Followers");
+  QAction* viewFans = menu.addAction("View Fans");
+  QAction* selected = menu.exec(screenPos);
+  if (selected == viewFollowers) {
+    showNodeRelationDialog(uid, true);
+  } else if (selected == viewFans) {
+    showNodeRelationDialog(uid, false);
+  }
+}
+
+void MainWindow::showNodeRelationDialog(uint64_t uid, bool showFollowers) {
+  const QList<uint64_t> relations = showFollowers
+      ? m_followersByUid.value(uid)
+      : m_fansByUid.value(uid);
+  const QString title = showFollowers ? "Followers" : "Fans";
+  if (relations.isEmpty()) {
+    QMessageBox::information(this,
+                             QString("%1 of %2").arg(title).arg(uid),
+                             QString("No %1 data available for this node.").arg(title.toLower()));
+    return;
+  }
+
+  QStringList lines;
+  lines.reserve(relations.size());
+  for (uint64_t rid : relations) {
+    lines.append(QString::number(rid));
+  }
+
+  QMessageBox box(this);
+  box.setWindowTitle(QString("%1 of %2 (%3)").arg(title).arg(uid).arg(relations.size()));
+  box.setText(QString("%1 UID list:").arg(title));
+  box.setDetailedText(lines.join("\n"));
+  box.setIcon(QMessageBox::Information);
+  box.exec();
 }
 
 void MainWindow::onLayoutChanged(int index) {

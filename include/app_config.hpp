@@ -14,6 +14,7 @@ struct AppConfig {
   std::string cookie_path = "cookie.json";
   std::string headers_path = "headers.json";
   std::string config_path = "config.json";
+  std::string crawl_state_path = "crawl_state.json";
 
   // Weibo API
   std::string weibo_host = "https://www.weibo.com";
@@ -21,6 +22,21 @@ struct AppConfig {
 
   // Default target
   uint64_t default_uid = 6126303533;
+  int crawl_max_depth = 1;
+
+  // Retry strategy
+  int retry_max_attempts = 5;
+  int retry_base_delay_ms = 1000;
+  int retry_max_delay_ms = 10000;
+  double retry_backoff_factor = 2.0;
+
+  // Anti-crawl stabilization
+  int request_min_interval_ms = 800;
+  int request_jitter_ms = 400;
+  int cooldown_429_ms = 30000;
+
+  // Logging
+  std::string log_level = "info";
 
   // Load from JSON file; returns default config on failure
   static AppConfig load(const std::string &path = "app_config.json");

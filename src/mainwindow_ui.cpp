@@ -7,6 +7,8 @@
 #include <QBrush>
 #include <QScrollArea>
 #include <QGridLayout>
+#include <QFormLayout>
+#include <QGroupBox>
 #include <QTimer>
 #include <QMediaPlayer>
 #include <QVideoWidget>
@@ -122,6 +124,15 @@ void MainWindow::setupUi() {
   toolbar->addWidget(m_crawlWeiboCheck);
   toolbar->addWidget(m_crawlFansCheck);
   toolbar->addWidget(m_crawlFollowersCheck);
+
+  QLabel* depthLabel = new QLabel("Depth:", this);
+  depthLabel->setStyleSheet("margin-left: 8px;");
+  toolbar->addWidget(depthLabel);
+  m_depthSpin->setRange(0, 5);
+  m_depthSpin->setValue(m_appConfig.crawl_max_depth);
+  m_depthSpin->setToolTip("Recursive crawl depth (0 = only target user)");
+  m_depthSpin->setFixedWidth(60);
+  toolbar->addWidget(m_depthSpin);
   toolbar->addSeparator();
   
   m_playVideoCheck->setChecked(true);
@@ -439,6 +450,180 @@ void MainWindow::setupUi() {
   videoListTabLayout->addWidget(videoListTabScroll);
 
   m_tabWidget->addTab(videoListTabContent, "🎬 Videos");
+
+  // --- Monitor Tab ---
+  QWidget* monitorTabContent = new QWidget(this);
+  QVBoxLayout* monitorLayout = new QVBoxLayout(monitorTabContent);
+  monitorLayout->setContentsMargins(16, 16, 16, 16);
+  monitorLayout->setSpacing(10);
+
+  QLabel* monitorTitle = new QLabel("Crawl Health Monitor", monitorTabContent);
+  monitorTitle->setStyleSheet("font-size: 18px; font-weight: 700;");
+  monitorLayout->addWidget(monitorTitle);
+
+  auto createMonitorLabel = [monitorTabContent](const QString &text) {
+    QLabel* label = new QLabel(text, monitorTabContent);
+    label->setStyleSheet("background: #313244; border: 1px solid #45475a; border-radius: 8px; padding: 10px 12px; color: #cdd6f4;");
+    return label;
+  };
+
+  m_monitorUsersLabel = createMonitorLabel("Users: processed=0 failed=0");
+  monitorLayout->addWidget(m_monitorUsersLabel);
+  m_monitorRequestsLabel = createMonitorLabel("Requests: total=0 failed=0");
+  monitorLayout->addWidget(m_monitorRequestsLabel);
+  m_monitorRetriesLabel = createMonitorLabel("Retries: 0");
+  monitorLayout->addWidget(m_monitorRetriesLabel);
+  m_monitor429Label = createMonitorLabel("HTTP 429: 0");
+  monitorLayout->addWidget(m_monitor429Label);
+  m_monitorQueueLabel = createMonitorLabel("Queue: pending=0 visited=0");
+  monitorLayout->addWidget(m_monitorQueueLabel);
+  m_monitorCurrentUidLabel = createMonitorLabel("Current UID: -");
+  monitorLayout->addWidget(m_monitorCurrentUidLabel);
+  monitorLayout->addStretch();
+
+  m_tabWidget->addTab(monitorTabContent, "📈 Monitor");
+
+  // --- Settings Tab ---
+  QWidget* settingsTabContent = new QWidget(this);
+  QVBoxLayout* settingsLayout = new QVBoxLayout(settingsTabContent);
+  settingsLayout->setContentsMargins(16, 16, 16, 16);
+  settingsLayout->setSpacing(12);
+
+  QLabel* settingsTitle = new QLabel("Crawler Engine Settings", settingsTabContent);
+  settingsTitle->setStyleSheet("font-size: 18px; font-weight: 700;");
+  settingsLayout->addWidget(settingsTitle);
+
+  QLabel* settingsHint = new QLabel(
+      "These settings are saved to app_config.json and applied to new crawl tasks.",
+      settingsTabContent);
+  settingsHint->setStyleSheet("color: #6c7086;");
+  settingsLayout->addWidget(settingsHint);
+
+  QGroupBox* retryGroup = new QGroupBox("Retry Strategy", settingsTabContent);
+  QFormLayout* retryForm = new QFormLayout(retryGroup);
+  retryForm->setLabelAlignment(Qt::AlignRight | Qt::AlignVCenter);
+
+  m_retryAttemptsSpin = new QSpinBox(retryGroup);
+  m_retryAttemptsSpin->setRange(1, 20);
+  m_retryAttemptsSpin->setValue(m_appConfig.retry_max_attempts);
+  retryForm->addRow("Max Attempts", m_retryAttemptsSpin);
+
+  m_retryBaseDelaySpin = new QSpinBox(retryGroup);
+  m_retryBaseDelaySpin->setRange(0, 60000);
+  m_retryBaseDelaySpin->setSingleStep(100);
+  m_retryBaseDelaySpin->setSuffix(" ms");
+  m_retryBaseDelaySpin->setValue(m_appConfig.retry_base_delay_ms);
+  retryForm->addRow("Base Delay", m_retryBaseDelaySpin);
+
+  m_retryMaxDelaySpin = new QSpinBox(retryGroup);
+  m_retryMaxDelaySpin->setRange(0, 180000);
+  m_retryMaxDelaySpin->setSingleStep(500);
+  m_retryMaxDelaySpin->setSuffix(" ms");
+  m_retryMaxDelaySpin->setValue(m_appConfig.retry_max_delay_ms);
+  retryForm->addRow("Max Delay", m_retryMaxDelaySpin);
+
+  m_retryBackoffSpin = new QDoubleSpinBox(retryGroup);
+  m_retryBackoffSpin->setRange(1.0, 10.0);
+  m_retryBackoffSpin->setDecimals(2);
+  m_retryBackoffSpin->setSingleStep(0.1);
+  m_retryBackoffSpin->setValue(m_appConfig.retry_backoff_factor);
+  retryForm->addRow("Backoff Factor", m_retryBackoffSpin);
+  settingsLayout->addWidget(retryGroup);
+
+  QGroupBox* antiCrawlGroup = new QGroupBox("Anti-Crawl Stabilization", settingsTabContent);
+  QFormLayout* antiCrawlForm = new QFormLayout(antiCrawlGroup);
+  antiCrawlForm->setLabelAlignment(Qt::AlignRight | Qt::AlignVCenter);
+
+  m_requestMinIntervalSpin = new QSpinBox(antiCrawlGroup);
+  m_requestMinIntervalSpin->setRange(0, 60000);
+  m_requestMinIntervalSpin->setSingleStep(100);
+  m_requestMinIntervalSpin->setSuffix(" ms");
+  m_requestMinIntervalSpin->setValue(m_appConfig.request_min_interval_ms);
+  antiCrawlForm->addRow("Min Interval", m_requestMinIntervalSpin);
+
+  m_requestJitterSpin = new QSpinBox(antiCrawlGroup);
+  m_requestJitterSpin->setRange(0, 10000);
+  m_requestJitterSpin->setSingleStep(50);
+  m_requestJitterSpin->setSuffix(" ms");
+  m_requestJitterSpin->setValue(m_appConfig.request_jitter_ms);
+  antiCrawlForm->addRow("Random Jitter", m_requestJitterSpin);
+
+  m_cooldown429Spin = new QSpinBox(antiCrawlGroup);
+  m_cooldown429Spin->setRange(0, 300000);
+  m_cooldown429Spin->setSingleStep(500);
+  m_cooldown429Spin->setSuffix(" ms");
+  m_cooldown429Spin->setValue(m_appConfig.cooldown_429_ms);
+  antiCrawlForm->addRow("429 Cooldown", m_cooldown429Spin);
+  settingsLayout->addWidget(antiCrawlGroup);
+
+  QGroupBox* logGroup = new QGroupBox("Logging", settingsTabContent);
+  QFormLayout* logForm = new QFormLayout(logGroup);
+  logForm->setLabelAlignment(Qt::AlignRight | Qt::AlignVCenter);
+
+  m_logLevelCombo = new QComboBox(logGroup);
+  m_logLevelCombo->addItem("trace");
+  m_logLevelCombo->addItem("debug");
+  m_logLevelCombo->addItem("info");
+  m_logLevelCombo->addItem("warn");
+  m_logLevelCombo->addItem("error");
+  m_logLevelCombo->addItem("critical");
+  m_logLevelCombo->addItem("off");
+  const int logLevelIndex = m_logLevelCombo->findText(
+      QString::fromStdString(m_appConfig.log_level),
+      Qt::MatchFixedString);
+  m_logLevelCombo->setCurrentIndex(logLevelIndex >= 0 ? logLevelIndex : 2);
+  logForm->addRow("Global Log Level", m_logLevelCombo);
+  settingsLayout->addWidget(logGroup);
+
+  QGroupBox* cookieGroup = new QGroupBox("Cookie Editor", settingsTabContent);
+  QVBoxLayout* cookieLayout = new QVBoxLayout(cookieGroup);
+  cookieLayout->setContentsMargins(8, 8, 8, 8);
+  cookieLayout->setSpacing(8);
+
+  m_cookiePathLabel = new QLabel(cookieGroup);
+  m_cookiePathLabel->setTextInteractionFlags(Qt::TextSelectableByMouse);
+  m_cookiePathLabel->setStyleSheet("color: #6c7086;");
+  cookieLayout->addWidget(m_cookiePathLabel);
+
+  m_cookieEditor = new QTextEdit(cookieGroup);
+  m_cookieEditor->setAcceptRichText(false);
+  m_cookieEditor->setMinimumHeight(180);
+  m_cookieEditor->setPlaceholderText("Edit cookie.json content here (JSON object)");
+  cookieLayout->addWidget(m_cookieEditor);
+
+  QHBoxLayout* cookieBtnLayout = new QHBoxLayout();
+  QPushButton* reloadCookieBtn = new QPushButton("Reload Cookie", cookieGroup);
+  connect(reloadCookieBtn, &QPushButton::clicked, this, &MainWindow::loadCookieEditor);
+  cookieBtnLayout->addWidget(reloadCookieBtn);
+
+  QPushButton* saveCookieBtn = new QPushButton("Save Cookie", cookieGroup);
+  connect(saveCookieBtn, &QPushButton::clicked, this, &MainWindow::saveCookieEditor);
+  cookieBtnLayout->addWidget(saveCookieBtn);
+  cookieBtnLayout->addStretch();
+  cookieLayout->addLayout(cookieBtnLayout);
+
+  settingsLayout->addWidget(cookieGroup);
+
+  QHBoxLayout* settingsBtnLayout = new QHBoxLayout();
+  settingsBtnLayout->addStretch();
+  QPushButton* saveSettingsBtn = new QPushButton("Save Engine Settings", settingsTabContent);
+  connect(saveSettingsBtn, &QPushButton::clicked, [this]() {
+    syncSettingsUiToAppConfig();
+    m_appConfig.save();
+    setupLogSink();
+    appendLog(QString("Engine settings saved. Log level=%1, retry=%2, interval=%3ms, jitter=%4ms")
+                  .arg(QString::fromStdString(m_appConfig.log_level))
+                  .arg(m_appConfig.retry_max_attempts)
+                  .arg(m_appConfig.request_min_interval_ms)
+                  .arg(m_appConfig.request_jitter_ms));
+  });
+  settingsBtnLayout->addWidget(saveSettingsBtn);
+  settingsLayout->addLayout(settingsBtnLayout);
+  settingsLayout->addStretch();
+
+  loadCookieEditor();
+
+  m_tabWidget->addTab(settingsTabContent, "⚙ Settings");
 
   // --- Log Tab ---
   m_tabWidget->addTab(m_logPanel, "📜 Logs");

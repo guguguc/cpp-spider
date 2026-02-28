@@ -178,3 +178,70 @@ std::set<uint64_t> MongoWriter::get_stored_weibo_ids(uint64_t uid) {
   }
   return ids;
 }
+
+std::vector<Weibo> MongoWriter::get_weibos(uint64_t uid) {
+  using bsoncxx::builder::basic::kvp;
+  std::vector<Weibo> ret;
+  std::set<uint64_t> seen_ids;
+
+  bsoncxx::builder::basic::document filter;
+  filter.append(kvp("uid", std::to_string(uid)));
+
+  auto cursor = m_collection.find(filter.view());
+  for (const auto &doc : cursor) {
+    if (!doc["weibos"] || doc["weibos"].type() != bsoncxx::type::k_array) {
+      continue;
+    }
+
+    for (const auto &elem : doc["weibos"].get_array().value) {
+      if (elem.type() != bsoncxx::type::k_document) {
+        continue;
+      }
+
+      auto wb = elem.get_document().value;
+      uint64_t id = 0;
+      if (wb["id"]) {
+        if (wb["id"].type() == bsoncxx::type::k_string) {
+          id = std::stoull(std::string(wb["id"].get_string().value));
+        } else if (wb["id"].type() == bsoncxx::type::k_int64) {
+          id = static_cast<uint64_t>(wb["id"].get_int64().value);
+        } else if (wb["id"].type() == bsoncxx::type::k_int32) {
+          id = static_cast<uint64_t>(wb["id"].get_int32().value);
+        }
+      }
+
+      if (id == 0 || seen_ids.count(id)) {
+        continue;
+      }
+      seen_ids.insert(id);
+
+      std::string timestamp;
+      if (wb["timestamp"] && wb["timestamp"].type() == bsoncxx::type::k_string) {
+        timestamp = std::string(wb["timestamp"].get_string().value);
+      }
+
+      std::string text;
+      if (wb["text"] && wb["text"].type() == bsoncxx::type::k_string) {
+        text = std::string(wb["text"].get_string().value);
+      }
+
+      std::vector<std::string> pics;
+      if (wb["pics"] && wb["pics"].type() == bsoncxx::type::k_array) {
+        for (const auto &pic_elem : wb["pics"].get_array().value) {
+          if (pic_elem.type() == bsoncxx::type::k_string) {
+            pics.push_back(std::string(pic_elem.get_string().value));
+          }
+        }
+      }
+
+      std::string video_url;
+      if (wb["video_url"] && wb["video_url"].type() == bsoncxx::type::k_string) {
+        video_url = std::string(wb["video_url"].get_string().value);
+      }
+
+      ret.emplace_back(text, timestamp, id, pics, video_url);
+    }
+  }
+
+  return ret;
+}

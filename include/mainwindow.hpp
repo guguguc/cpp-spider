@@ -28,6 +28,9 @@
 #include <QHBoxLayout>
 #include <QFileDialog>
 #include <QPixmap>
+#include <QPoint>
+#include <QSpinBox>
+#include <QDoubleSpinBox>
 #include <QMediaPlayer>
 #include <QVideoWidget>
 #include <QAudioOutput>
@@ -101,6 +104,9 @@ public:
   uint64_t uid() const { return m_uid; }
   void setLabel(QGraphicsTextItem* label) { m_label = label; }
   void setClickCallback(std::function<void(uint64_t)> callback) { m_clickCallback = callback; }
+  void setContextMenuCallback(std::function<void(uint64_t, const QPoint&)> callback) {
+    m_contextMenuCallback = callback;
+  }
 
   void setTheme(const Theme& theme) {
     m_theme = &theme;
@@ -114,6 +120,13 @@ public:
 
 protected:
   void mousePressEvent(QGraphicsSceneMouseEvent* event) override {
+    if (event->button() == Qt::RightButton) {
+      if (m_contextMenuCallback) {
+        m_contextMenuCallback(m_uid, event->screenPos());
+      }
+      event->accept();
+      return;
+    }
     m_dragging = true;
     m_clickStartPos = event->screenPos();
     QGraphicsEllipseItem::mousePressEvent(event);
@@ -149,6 +162,7 @@ protected:
   QGraphicsTextItem* m_label;
   QPointF m_clickStartPos;
   std::function<void(uint64_t)> m_clickCallback;
+  std::function<void(uint64_t, const QPoint&)> m_contextMenuCallback;
 };
 
 class MainWindow : public QMainWindow {
@@ -167,6 +181,15 @@ private slots:
    void onWeiboFetched(uint64_t uid, const QString& weibo);
    void onLayoutChanged(int index);
    void onApplyLayoutClicked();
+   void onMetricsUpdated(qulonglong usersProcessed,
+                         qulonglong usersFailed,
+                         qulonglong requestsTotal,
+                         qulonglong requestsFailed,
+                         qulonglong retriesTotal,
+                         qulonglong http429Count,
+                         qulonglong queuePending,
+                         qulonglong visitedTotal,
+                         qulonglong currentUid);
    void showNodeWeibo(uint64_t uid);
     void updateWeiboStats(int totalWeibo, int totalVideo);
     void showAllPictures(uint64_t uid);
@@ -188,6 +211,12 @@ private:
    void downloadVideo(const QString& videoUrl, QWidget* parent);
    void saveAllPictures(const QList<QString>& picUrls, QWidget* parent);
    void loadImageAsync(const QString& picUrl, QLabel* picLabel, int maxSize);
+   void syncSettingsUiToAppConfig();
+   void loadCookieEditor();
+   void saveCookieEditor();
+   void ensureWeibosLoaded(uint64_t uid);
+   void showNodeContextMenu(uint64_t uid, const QPoint& screenPos);
+   void showNodeRelationDialog(uint64_t uid, bool showFollowers);
 
   AppConfig m_appConfig;
   QPushButton* m_startBtn;
@@ -199,6 +228,7 @@ private:
   QCheckBox* m_crawlFansCheck;
   QCheckBox* m_crawlFollowersCheck;
   QCheckBox* m_playVideoCheck;
+  QSpinBox* m_depthSpin;
   QLineEdit* m_uidInput;
   QComboBox* m_themeCombo;
   QComboBox* m_layoutCombo;
@@ -217,6 +247,8 @@ private:
   QMap<uint64_t, QGraphicsPathItem*> m_lines;
   QMap<uint64_t, bool> m_lineIsFollower;
   QMap<uint64_t, std::vector<uint64_t>> m_adjacency;
+  QMap<uint64_t, QList<uint64_t>> m_followersByUid;
+  QMap<uint64_t, QList<uint64_t>> m_fansByUid;
   QMap<uint64_t, QGraphicsTextItem*> m_labels;
   
   struct WeiboData {
@@ -226,6 +258,7 @@ private:
     std::string video_url;
   };
   QMap<uint64_t, std::vector<WeiboData>> m_weibos;
+  std::mutex m_weiboMutex;
    QMap<QString, QPixmap> m_imageCache;
    std::unique_ptr<httplib::Client> m_imageClient;
    std::mutex m_imageClientMutex;
@@ -254,11 +287,30 @@ private:
     QList<QString> m_currentPictureUrls;
     uint64_t m_currentPictureUid;
 
-    QScrollArea* m_videoListTabScroll;
-    QWidget* m_videoListTabContainer;
-    QLabel* m_videoListTabCountLabel;
-    QList<QString> m_currentVideoUrls;
-    uint64_t m_currentVideoListUid;
+     QScrollArea* m_videoListTabScroll;
+     QWidget* m_videoListTabContainer;
+     QLabel* m_videoListTabCountLabel;
+     QList<QString> m_currentVideoUrls;
+     uint64_t m_currentVideoListUid;
+     uint64_t m_currentWeiboUid;
+     int m_weiboCurrentPage;
+
+     QSpinBox* m_retryAttemptsSpin;
+     QSpinBox* m_retryBaseDelaySpin;
+     QSpinBox* m_retryMaxDelaySpin;
+     QDoubleSpinBox* m_retryBackoffSpin;
+     QSpinBox* m_requestMinIntervalSpin;
+     QSpinBox* m_requestJitterSpin;
+     QSpinBox* m_cooldown429Spin;
+     QComboBox* m_logLevelCombo;
+     QLabel* m_cookiePathLabel;
+     QTextEdit* m_cookieEditor;
+     QLabel* m_monitorUsersLabel;
+     QLabel* m_monitorRequestsLabel;
+     QLabel* m_monitorRetriesLabel;
+     QLabel* m_monitor429Label;
+     QLabel* m_monitorQueueLabel;
+     QLabel* m_monitorCurrentUidLabel;
 };
 
 #endif  // MAINWINDOW_HPP

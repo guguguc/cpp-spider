@@ -26,6 +26,7 @@ public:
   bool user_exists(uint64_t uid);
   uint64_t get_latest_weibo_id(uint64_t uid);
   std::set<uint64_t> get_stored_weibo_ids(uint64_t uid);
+  std::vector<Weibo> get_weibos(uint64_t uid);
 
 private:
   mongocxx::client m_client;
