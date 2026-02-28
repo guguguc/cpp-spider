@@ -12,8 +12,12 @@ It fetches user profile data from Weibo, draws relationship graphs, collects Wei
   - Single video player view
   - All pictures view
   - All videos view
+  - Crawl health monitor view
+  - Settings view (crawler, anti-crawl, logging, cookie editor)
+  - Log panel view
 - Interactive graph:
   - Node drag + curved edges
+  - Right-click node menu to inspect followers/fans UID lists
   - Mouse wheel zoom and keyboard zoom shortcuts (`+`, `-`, `0`)
   - Layout algorithms: Random, Circular, Force Directed, Kamada-Kawai, Grid, Hierarchical
   - Theme switching
@@ -21,12 +25,23 @@ It fetches user profile data from Weibo, draws relationship graphs, collects Wei
   - Crawl Weibo posts
   - Crawl fans
   - Crawl followers
+  - Recursive crawl depth (`0..5`)
+  - Breakpoint resume (queue state persisted to file)
+  - Incremental crawl with early-stop on existing weibo IDs
+- Configurable anti-crawl strategy:
+  - Retry attempts/backoff
+  - Request min interval + jitter
+  - 429 cooldown window
+- Configurable global log level (`trace`/`debug`/`info`/`warn`/`error`/`critical`/`off`)
 - Media support:
   - Async image loading with cache
   - Video playback in Qt Multimedia
   - Save single video
   - Save all pictures for selected user
 - MongoDB persistence (`weibo.user` collection)
+  - Upsert-by-uid
+  - Unique index on `uid`
+  - Weibo deduplication on write
 
 ## Tech Stack
 
@@ -44,18 +59,29 @@ It fetches user profile data from Weibo, draws relationship graphs, collects Wei
 ```text
 cpp-spider/
 ├── include/
+│   ├── app_config.hpp
 │   ├── graph_layout.hpp
+│   ├── log_panel.hpp
 │   ├── mainwindow.hpp
+│   ├── qt_log_sink.hpp
 │   ├── spider.hpp
 │   ├── weibo.hpp
 │   └── writer.hpp
 ├── src/
+│   ├── app_config.cpp
 │   ├── main.cpp
 │   ├── mainwindow.cpp
+│   ├── mainwindow_graph.cpp
+│   ├── mainwindow_media.cpp
+│   ├── mainwindow_spider.cpp
+│   ├── mainwindow_ui.cpp
+│   ├── log_panel.cpp
 │   ├── spider.cpp
 │   ├── weibo.cpp
 │   └── writer.cpp
 ├── CMakeLists.txt
+├── app_config.json
+├── crawl_state.json (runtime-generated)
 ├── config.json
 ├── cookie.json
 └── headers.json
@@ -77,9 +103,11 @@ MainWindow (GUI Thread)
 
 | Component | Files | Responsibility |
 |-----------|-------|----------------|
-| **MainWindow** | `mainwindow.hpp/cpp` | GUI orchestration, graph visualization, tabs (graph, weibo list, video player, pictures, videos) |
-| **Spider** | `spider.hpp/cpp` | Crawling engine — HTTP requests to Weibo Ajax API, rate limiting, retry logic |
+| **MainWindow** | `mainwindow.hpp`, `mainwindow_*.cpp` | GUI orchestration, graph visualization, tabs (graph/weibo/video/pictures/videos/monitor/settings/logs) |
+| **Spider** | `spider.hpp/cpp` | Crawling engine — HTTP requests, retry/anti-crawl, depth-based BFS crawl, breakpoint resume, metrics reporting |
 | **MongoWriter** | `writer.hpp/cpp` | MongoDB connection and BSON document persistence |
+| **AppConfig** | `app_config.hpp/cpp` | Centralized runtime configuration loading/saving from `app_config.json` |
+| **LogPanel / QtLogSink** | `log_panel.*`, `qt_log_sink.hpp` | Structured GUI log panel and thread-safe `spdlog` to Qt bridge |
 | **Weibo / User** | `weibo.hpp/cpp` | Data models for users and posts |
 | **GraphLayout** | `graph_layout.hpp` | Header-only layout algorithms (Force-Directed, Circular, Grid, Hierarchical, Kamada-Kawai, Random) |
 
@@ -156,6 +184,40 @@ From project root:
 
 ## Configuration Files
 
+### `app_config.json`
+
+Primary runtime configuration. Includes:
+
+- MongoDB settings (`mongo_url`, `mongo_db`, `mongo_collection`)
+- File paths (`cookie_path`, `headers_path`, `config_path`, `crawl_state_path`)
+- Crawl defaults (`default_uid`, `crawl_max_depth`)
+- Retry + anti-crawl tuning (`retry_*`, `request_*`, `cooldown_429_ms`)
+- Logging (`log_level`)
+
+Example:
+
+```json
+{
+  "mongo_url": "mongodb://0.0.0.0:27017",
+  "mongo_db": "weibo",
+  "mongo_collection": "user",
+  "cookie_path": "/home/user/cpp-spider/cookie.json",
+  "headers_path": "/home/user/cpp-spider/headers.json",
+  "config_path": "/home/user/cpp-spider/config.json",
+  "crawl_state_path": "/home/user/cpp-spider/crawl_state.json",
+  "default_uid": 6126303533,
+  "crawl_max_depth": 1,
+  "retry_max_attempts": 5,
+  "retry_base_delay_ms": 1000,
+  "retry_max_delay_ms": 10000,
+  "retry_backoff_factor": 2.0,
+  "request_min_interval_ms": 800,
+  "request_jitter_ms": 400,
+  "cooldown_429_ms": 30000,
+  "log_level": "info"
+}
+```
+
 ### `cookie.json`
 
 JSON object of cookie key-values used for authenticated requests.
@@ -190,23 +252,31 @@ UI persistence currently stores:
 
 - `crawl_weibo` (bool)
 - `target_uid` (string)
+- `crawl_depth` (int)
 
 Example:
 
 ```json
 {
   "crawl_weibo": true,
-  "target_uid": "6126303533"
+  "target_uid": "6126303533",
+  "crawl_depth": 1
 }
 ```
+
+### `crawl_state.json`
+
+Runtime-generated breakpoint file for resume. Stores crawl queue cursor, visited set, and metrics snapshot for the active task.
 
 ## How It Works
 
 1. `MainWindow` starts a worker `QThread`.
-2. Worker creates `Spider(uid)` and sets callbacks (from `libspider.so`).
-3. `Spider` fetches profile/fans/followers/posts from Weibo Ajax endpoints.
-4. UI updates are pushed back with `QMetaObject::invokeMethod(..., Qt::QueuedConnection)`.
-5. Crawled user data is written by `MongoWriter` into MongoDB.
+2. Worker creates `Spider(uid, app_config)` and sets callbacks (from `libspider.so`).
+3. `Spider` runs depth-based BFS crawl (profile, fans/followers, weibos) from the target UID.
+4. Request execution uses configurable retry/backoff and anti-crawl pacing.
+5. Crawl queue state is persisted periodically to support resume after interruption.
+6. UI updates are pushed back with `QMetaObject::invokeMethod` (queued/blocking queued where appropriate).
+7. Crawled user data is upserted by `MongoWriter` into MongoDB.
 
 ## MongoDB Output
 
@@ -232,16 +302,12 @@ Current stored document shape:
 
 Notes:
 
-- `video_url` is collected in memory for UI but is not persisted by `MongoWriter` currently.
-- Follower IDs are built in `MongoWriter::write_one` but are not appended into the final BSON document.
+- `video_url` is persisted in MongoDB.
+- Writes are incremental and de-duplicated by weibo id.
 
 ## Current Limitations
 
-- `Spider::run()` currently writes only the target/root user to MongoDB. The recursive follower crawl/write loop is present but commented out.
-- `cookie.json` and `headers.json` are loaded via hard-coded absolute paths in code:
-  - `/home/gugugu/Repo/cpp-spider/cookie.json`
-  - `/home/gugugu/Repo/cpp-spider/headers.json`
-  This makes runtime path-sensitive across machines.
+- Very large users can still stress UI rendering; weibo view uses paging to mitigate this.
 - TLS verification is disabled in scraper HTTP client.
 - No automated tests are included.
 
