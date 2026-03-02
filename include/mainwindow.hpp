@@ -29,6 +29,7 @@
 #include <QFileDialog>
 #include <QPixmap>
 #include <QPoint>
+#include <QTableWidget>
 #include <QSpinBox>
 #include <QDoubleSpinBox>
 #include <QMediaPlayer>
@@ -211,12 +212,25 @@ private:
    void downloadVideo(const QString& videoUrl, QWidget* parent);
    void saveAllPictures(const QList<QString>& picUrls, QWidget* parent);
    void loadImageAsync(const QString& picUrl, QLabel* picLabel, int maxSize);
+   void setupDownloadManagerTab();
+   QString registerDownloadTask(const QString& type,
+                                const QString& source,
+                                const QString& target,
+                                int total_items = 1);
+   void updateDownloadTask(const QString& task_id,
+                           const QString& status,
+                           int progress,
+                           const QString& detail);
+   void finishDownloadTask(const QString& task_id,
+                           bool success,
+                           const QString& detail);
    void syncSettingsUiToAppConfig();
    void loadCookieEditor();
    void saveCookieEditor();
    void ensureWeibosLoaded(uint64_t uid);
    void showNodeContextMenu(uint64_t uid, const QPoint& screenPos);
    void showNodeRelationDialog(uint64_t uid, bool showFollowers);
+   void applyRequestProfile(const QString& profile);
 
   AppConfig m_appConfig;
   QPushButton* m_startBtn;
@@ -302,15 +316,20 @@ private:
      QSpinBox* m_requestMinIntervalSpin;
      QSpinBox* m_requestJitterSpin;
      QSpinBox* m_cooldown429Spin;
+     QComboBox* m_requestProfileCombo;
      QComboBox* m_logLevelCombo;
      QLabel* m_cookiePathLabel;
      QTextEdit* m_cookieEditor;
      QLabel* m_monitorUsersLabel;
      QLabel* m_monitorRequestsLabel;
      QLabel* m_monitorRetriesLabel;
-     QLabel* m_monitor429Label;
-     QLabel* m_monitorQueueLabel;
-     QLabel* m_monitorCurrentUidLabel;
+      QLabel* m_monitor429Label;
+      QLabel* m_monitorQueueLabel;
+      QLabel* m_monitorCurrentUidLabel;
+      QTableWidget* m_downloadTable;
+      QMap<QString, int> m_downloadRowById;
+      std::atomic<uint64_t> m_downloadTaskSeq;
+      std::mutex m_downloadTaskMutex;
 };
 
 #endif  // MAINWINDOW_HPP

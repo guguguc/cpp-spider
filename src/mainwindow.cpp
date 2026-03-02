@@ -39,6 +39,7 @@ MainWindow::MainWindow(QWidget* parent)
    , m_requestMinIntervalSpin(nullptr)
    , m_requestJitterSpin(nullptr)
    , m_cooldown429Spin(nullptr)
+   , m_requestProfileCombo(nullptr)
    , m_logLevelCombo(nullptr)
    , m_cookiePathLabel(nullptr)
    , m_cookieEditor(nullptr)
@@ -47,7 +48,9 @@ MainWindow::MainWindow(QWidget* parent)
    , m_monitorRetriesLabel(nullptr)
    , m_monitor429Label(nullptr)
    , m_monitorQueueLabel(nullptr)
-   , m_monitorCurrentUidLabel(nullptr) {
+   , m_monitorCurrentUidLabel(nullptr)
+   , m_downloadTable(nullptr)
+   , m_downloadTaskSeq(0) {
   m_imageClient = std::make_unique<httplib::Client>(m_appConfig.image_host);
   m_imageClient->set_follow_location(true);
   m_imageClient->set_decompress(true);

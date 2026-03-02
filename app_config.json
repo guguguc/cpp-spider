@@ -17,5 +17,6 @@
   "request_min_interval_ms": 800,
   "request_jitter_ms": 400,
   "cooldown_429_ms": 30000,
+  "request_profile": "balanced",
   "log_level": "info"
 }

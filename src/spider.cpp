@@ -511,8 +511,8 @@ User Spider::get_user(uint64_t uid,
         }
       }
       if (m_crawlFans) {
-        auto fans = get_other_follower(uid);
-        for (const auto& f : fans) {
+        user.fans = get_other_follower(uid);
+        for (const auto& f : user.fans) {
           fan_ids.push_back(f.uid);
         }
       }
@@ -612,6 +612,23 @@ void Spider::run() {
     queue.clear();
     queue.emplace_back(m_self.uid, 0);
     cursor = 0;
+  } else {
+    // Restore already-visited nodes in GUI so resume keeps previous graph visible.
+    for (const auto restored_uid : visited) {
+      std::string restored_name;
+      std::vector<uint64_t> restored_followers;
+      std::vector<uint64_t> restored_fans;
+      if (m_writer->get_user_relations(restored_uid,
+                                       &restored_name,
+                                       &restored_followers,
+                                       &restored_fans)) {
+        notifyUserFetched(restored_uid,
+                          restored_name,
+                          restored_followers,
+                          restored_fans);
+      }
+    }
+    spdlog::info(fmt::format("restored {} visited nodes into UI", visited.size()));
   }
 
   m_queue_pending = queue.size() > cursor ? queue.size() - cursor : 0;
@@ -620,14 +637,16 @@ void Spider::run() {
   save_crawl_state(queue, cursor, visited, m_self.uid);
 
   while (m_running && cursor < queue.size()) {
-    const auto [uid, depth] = queue[cursor++];
+    const auto [uid, depth] = queue[cursor];
     if (visited.count(uid)) {
+      cursor++;
       m_queue_pending = queue.size() > cursor ? queue.size() - cursor : 0;
       m_visited_total = visited.size();
       emit_metrics(false);
+      save_crawl_state(queue, cursor, visited, uid);
       continue;
     }
-    visited.insert(uid);
+
     m_current_uid = uid;
 
     const bool need_relations =
@@ -635,8 +654,18 @@ void Spider::run() {
     std::vector<uint64_t> follower_ids;
     std::vector<uint64_t> fan_ids;
     User user = get_user(uid, need_relations, &follower_ids, &fan_ids);
+
+    if (!m_running) {
+      m_queue_pending = queue.size() > cursor ? queue.size() - cursor : 0;
+      m_visited_total = visited.size();
+      emit_metrics(true);
+      save_crawl_state(queue, cursor, visited, uid);
+      break;
+    }
+
     if (user.username.empty()) {
       m_users_failed++;
+      cursor++;
       m_queue_pending = queue.size() > cursor ? queue.size() - cursor : 0;
       m_visited_total = visited.size();
       emit_metrics(true);
@@ -649,10 +678,20 @@ void Spider::run() {
       if (m_weiboCallback) {
         m_weiboCallback(user.uid, user.weibo);
       }
+
+      if (!m_running) {
+        m_queue_pending = queue.size() > cursor ? queue.size() - cursor : 0;
+        m_visited_total = visited.size();
+        emit_metrics(true);
+        save_crawl_state(queue, cursor, visited, uid);
+        break;
+      }
     }
 
     m_writer->write_one(user);
     m_users_processed++;
+    visited.insert(uid);
+    cursor++;
     spdlog::info("write uid: {} to mongodb!", user.uid);
 
     if (need_relations) {
@@ -754,8 +793,9 @@ std::vector<Weibo> Spider::get_weibo(const User &user) {
        Weibo weibo(text, tm, id, urls, video_url);
        weibos.push_back(weibo);
        spdlog::info(fmt::format(
-           "crawling uid {} weibo #{} (id={})",
+           "crawling uid {} username {} #{} (id={})",
            user.uid,
+           user.username,
            weibos.size(),
            id));
      }

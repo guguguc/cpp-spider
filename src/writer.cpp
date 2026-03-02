@@ -73,6 +73,12 @@ void MongoWriter::write_one(const User &user)
     followers.append(std::to_string(follower.uid));
   }
 
+  // Build fans array
+  bsoncxx::builder::basic::array fans;
+  for (const auto &fan : user.fans) {
+    fans.append(std::to_string(fan.uid));
+  }
+
   bsoncxx::builder::basic::document filter;
   filter.append(kvp("uid", std::to_string(user.uid)));
 
@@ -82,6 +88,7 @@ void MongoWriter::write_one(const User &user)
     doc.append(kvp("uid", std::to_string(user.uid)));
     doc.append(kvp("username", user.username));
     doc.append(kvp("followers", followers.extract()));
+    doc.append(kvp("fans", fans.extract()));
     doc.append(kvp("weibos", new_weibos.extract()));
     m_collection.insert_one(doc.view());
     spdlog::info(fmt::format(
@@ -93,6 +100,9 @@ void MongoWriter::write_one(const User &user)
     set_doc.append(kvp("username", user.username));
     if (!user.followers.empty()) {
       set_doc.append(kvp("followers", followers.extract()));
+    }
+    if (!user.fans.empty()) {
+      set_doc.append(kvp("fans", fans.extract()));
     }
 
     bsoncxx::builder::basic::document update;
@@ -244,4 +254,55 @@ std::vector<Weibo> MongoWriter::get_weibos(uint64_t uid) {
   }
 
   return ret;
+}
+
+bool MongoWriter::get_user_relations(uint64_t uid,
+                                     std::string *username,
+                                     std::vector<uint64_t> *followers,
+                                     std::vector<uint64_t> *fans) {
+  using bsoncxx::builder::basic::kvp;
+  bsoncxx::builder::basic::document filter;
+  filter.append(kvp("uid", std::to_string(uid)));
+
+  auto result = m_collection.find_one(filter.view());
+  if (!result) {
+    return false;
+  }
+
+  auto doc = result->view();
+  if (username) {
+    if (doc["username"] && doc["username"].type() == bsoncxx::type::k_string) {
+      *username = std::string(doc["username"].get_string().value);
+    } else {
+      username->clear();
+    }
+  }
+
+  auto parse_uid_array = [](const bsoncxx::document::view &d,
+                            const char *field,
+                            std::vector<uint64_t> *out) {
+    if (!out) {
+      return;
+    }
+    out->clear();
+    if (!d[field] || d[field].type() != bsoncxx::type::k_array) {
+      return;
+    }
+    for (const auto &elem : d[field].get_array().value) {
+      try {
+        if (elem.type() == bsoncxx::type::k_string) {
+          out->push_back(std::stoull(std::string(elem.get_string().value)));
+        } else if (elem.type() == bsoncxx::type::k_int64) {
+          out->push_back(static_cast<uint64_t>(elem.get_int64().value));
+        } else if (elem.type() == bsoncxx::type::k_int32) {
+          out->push_back(static_cast<uint64_t>(elem.get_int32().value));
+        }
+      } catch (const std::exception &) {
+      }
+    }
+  };
+
+  parse_uid_array(doc, "followers", followers);
+  parse_uid_array(doc, "fans", fans);
+  return true;
 }

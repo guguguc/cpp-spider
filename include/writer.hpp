@@ -27,6 +27,10 @@ public:
   uint64_t get_latest_weibo_id(uint64_t uid);
   std::set<uint64_t> get_stored_weibo_ids(uint64_t uid);
   std::vector<Weibo> get_weibos(uint64_t uid);
+  bool get_user_relations(uint64_t uid,
+                          std::string *username,
+                          std::vector<uint64_t> *followers,
+                          std::vector<uint64_t> *fans);
 
 private:
   mongocxx::client m_client;

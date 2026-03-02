@@ -250,9 +250,51 @@ void MainWindow::syncSettingsUiToAppConfig() {
   m_appConfig.request_min_interval_ms = m_requestMinIntervalSpin->value();
   m_appConfig.request_jitter_ms = m_requestJitterSpin->value();
   m_appConfig.cooldown_429_ms = m_cooldown429Spin->value();
+  if (m_requestProfileCombo) {
+    m_appConfig.request_profile = m_requestProfileCombo->currentText().toStdString();
+  }
   if (m_logLevelCombo) {
     m_appConfig.log_level = m_logLevelCombo->currentText().toStdString();
   }
+}
+
+void MainWindow::applyRequestProfile(const QString& profile) {
+  if (!m_retryAttemptsSpin || !m_retryBaseDelaySpin || !m_retryMaxDelaySpin ||
+      !m_retryBackoffSpin || !m_requestMinIntervalSpin ||
+      !m_requestJitterSpin || !m_cooldown429Spin) {
+    return;
+  }
+
+  if (profile == "conservative") {
+    m_retryAttemptsSpin->setValue(3);
+    m_retryBaseDelaySpin->setValue(2000);
+    m_retryMaxDelaySpin->setValue(20000);
+    m_retryBackoffSpin->setValue(1.8);
+    m_requestMinIntervalSpin->setValue(1500);
+    m_requestJitterSpin->setValue(800);
+    m_cooldown429Spin->setValue(60000);
+  } else if (profile == "balanced") {
+    m_retryAttemptsSpin->setValue(5);
+    m_retryBaseDelaySpin->setValue(1000);
+    m_retryMaxDelaySpin->setValue(10000);
+    m_retryBackoffSpin->setValue(2.0);
+    m_requestMinIntervalSpin->setValue(800);
+    m_requestJitterSpin->setValue(400);
+    m_cooldown429Spin->setValue(30000);
+  } else if (profile == "aggressive") {
+    m_retryAttemptsSpin->setValue(8);
+    m_retryBaseDelaySpin->setValue(500);
+    m_retryMaxDelaySpin->setValue(8000);
+    m_retryBackoffSpin->setValue(1.6);
+    m_requestMinIntervalSpin->setValue(300);
+    m_requestJitterSpin->setValue(200);
+    m_cooldown429Spin->setValue(10000);
+  }
+
+  if (m_requestProfileCombo && m_requestProfileCombo->currentText() != profile) {
+    m_requestProfileCombo->setCurrentText(profile);
+  }
+  appendLog(QString("Applied request profile: %1").arg(profile));
 }
 
 void MainWindow::loadCookieEditor() {

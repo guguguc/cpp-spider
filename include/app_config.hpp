@@ -34,6 +34,7 @@ struct AppConfig {
   int request_min_interval_ms = 800;
   int request_jitter_ms = 400;
   int cooldown_429_ms = 30000;
+  std::string request_profile = "balanced";
 
   // Logging
   std::string log_level = "info";

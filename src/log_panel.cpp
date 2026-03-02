@@ -1,8 +1,24 @@
 #include "log_panel.hpp"
 #include <QFile>
+#include <QRegularExpression>
 #include <QTextStream>
 #include <QMessageBox>
 #include <fmt/core.h>
+
+namespace {
+bool extractWeiboProgressUid(const QString &message, QString *uid_out) {
+  static const QRegularExpression re(
+      "^crawling uid\\s+([0-9]+)\\s+username\\s+.+\\s+#\\d+\\s+\\(id=.*\\)$");
+  auto match = re.match(message);
+  if (!match.hasMatch()) {
+    return false;
+  }
+  if (uid_out) {
+    *uid_out = match.captured(1);
+  }
+  return true;
+}
+}
 
 LogPanel::LogPanel(QWidget* parent)
     : QWidget(parent)
@@ -142,13 +158,44 @@ void LogPanel::appendLog(LogLevel level, const QString& message, const QString& 
   entry.message = message;
   entry.source = source;
 
+  bool updated_progress_line = false;
+
   {
     std::lock_guard<std::mutex> lock(m_entriesMutex);
-    m_entries.push_back(entry);
-    if (static_cast<int>(m_entries.size()) > m_maxEntries) {
-      m_entries.erase(m_entries.begin(),
-                      m_entries.begin() + static_cast<int>(m_entries.size()) - m_maxEntries);
+
+    QString new_uid;
+    const bool is_progress =
+        (source == "spider") &&
+        (level == LogLevel::Info) &&
+        extractWeiboProgressUid(message, &new_uid);
+
+    if (is_progress && !m_entries.empty()) {
+      const LogEntry &last = m_entries.back();
+      QString last_uid;
+      const bool last_is_progress =
+          (last.source == "spider") &&
+          (last.level == LogLevel::Info) &&
+          extractWeiboProgressUid(last.message, &last_uid);
+      if (last_is_progress && last_uid == new_uid) {
+        m_entries.back().timestamp = entry.timestamp;
+        m_entries.back().message = entry.message;
+        updated_progress_line = true;
+      }
     }
+
+    if (!updated_progress_line) {
+      m_entries.push_back(entry);
+      if (static_cast<int>(m_entries.size()) > m_maxEntries) {
+        m_entries.erase(m_entries.begin(),
+                        m_entries.begin() + static_cast<int>(m_entries.size()) - m_maxEntries);
+      }
+    }
+  }
+
+  if (updated_progress_line) {
+    refreshDisplay();
+    m_countLabel->setText(QString("%1 entries").arg(m_entries.size()));
+    return;
   }
 
   // Check if entry passes current filters

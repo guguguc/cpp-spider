@@ -34,6 +34,7 @@ AppConfig AppConfig::load(const std::string &path) {
     if (j.contains("request_min_interval_ms")) cfg.request_min_interval_ms = j["request_min_interval_ms"].get<int>();
     if (j.contains("request_jitter_ms")) cfg.request_jitter_ms = j["request_jitter_ms"].get<int>();
     if (j.contains("cooldown_429_ms")) cfg.cooldown_429_ms = j["cooldown_429_ms"].get<int>();
+    if (j.contains("request_profile")) cfg.request_profile = j["request_profile"].get<std::string>();
     if (j.contains("log_level")) cfg.log_level = j["log_level"].get<std::string>();
 
     spdlog::info(fmt::format("loaded config from {}", path));
@@ -64,6 +65,7 @@ void AppConfig::save(const std::string &path) const {
     j["request_min_interval_ms"] = request_min_interval_ms;
     j["request_jitter_ms"] = request_jitter_ms;
     j["cooldown_429_ms"] = cooldown_429_ms;
+    j["request_profile"] = request_profile;
     j["log_level"] = log_level;
 
     std::ofstream ofs(path);

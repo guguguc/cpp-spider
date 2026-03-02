@@ -503,6 +503,30 @@ void MainWindow::setupUi() {
   QFormLayout* retryForm = new QFormLayout(retryGroup);
   retryForm->setLabelAlignment(Qt::AlignRight | Qt::AlignVCenter);
 
+  m_requestProfileCombo = new QComboBox(retryGroup);
+  m_requestProfileCombo->addItem("conservative");
+  m_requestProfileCombo->addItem("balanced");
+  m_requestProfileCombo->addItem("aggressive");
+  m_requestProfileCombo->addItem("custom");
+  const int profileIndex = m_requestProfileCombo->findText(
+      QString::fromStdString(m_appConfig.request_profile),
+      Qt::MatchFixedString);
+  m_requestProfileCombo->setCurrentIndex(profileIndex >= 0 ? profileIndex : 1);
+
+  QWidget* profileWidget = new QWidget(retryGroup);
+  QHBoxLayout* profileLayout = new QHBoxLayout(profileWidget);
+  profileLayout->setContentsMargins(0, 0, 0, 0);
+  profileLayout->setSpacing(8);
+  profileLayout->addWidget(m_requestProfileCombo);
+  QPushButton* applyProfileBtn = new QPushButton("Apply", retryGroup);
+  connect(applyProfileBtn, &QPushButton::clicked, [this]() {
+    if (m_requestProfileCombo) {
+      applyRequestProfile(m_requestProfileCombo->currentText());
+    }
+  });
+  profileLayout->addWidget(applyProfileBtn);
+  retryForm->addRow("Template", profileWidget);
+
   m_retryAttemptsSpin = new QSpinBox(retryGroup);
   m_retryAttemptsSpin->setRange(1, 20);
   m_retryAttemptsSpin->setValue(m_appConfig.retry_max_attempts);
@@ -554,6 +578,30 @@ void MainWindow::setupUi() {
   m_cooldown429Spin->setSuffix(" ms");
   m_cooldown429Spin->setValue(m_appConfig.cooldown_429_ms);
   antiCrawlForm->addRow("429 Cooldown", m_cooldown429Spin);
+
+  auto markProfileCustom = [this]() {
+    if (!m_requestProfileCombo) {
+      return;
+    }
+    if (m_requestProfileCombo->currentText() != "custom") {
+      m_requestProfileCombo->setCurrentText("custom");
+    }
+  };
+  connect(m_retryAttemptsSpin, QOverload<int>::of(&QSpinBox::valueChanged),
+          this, [markProfileCustom](int) { markProfileCustom(); });
+  connect(m_retryBaseDelaySpin, QOverload<int>::of(&QSpinBox::valueChanged),
+          this, [markProfileCustom](int) { markProfileCustom(); });
+  connect(m_retryMaxDelaySpin, QOverload<int>::of(&QSpinBox::valueChanged),
+          this, [markProfileCustom](int) { markProfileCustom(); });
+  connect(m_retryBackoffSpin, QOverload<double>::of(&QDoubleSpinBox::valueChanged),
+          this, [markProfileCustom](double) { markProfileCustom(); });
+  connect(m_requestMinIntervalSpin, QOverload<int>::of(&QSpinBox::valueChanged),
+          this, [markProfileCustom](int) { markProfileCustom(); });
+  connect(m_requestJitterSpin, QOverload<int>::of(&QSpinBox::valueChanged),
+          this, [markProfileCustom](int) { markProfileCustom(); });
+  connect(m_cooldown429Spin, QOverload<int>::of(&QSpinBox::valueChanged),
+          this, [markProfileCustom](int) { markProfileCustom(); });
+
   settingsLayout->addWidget(antiCrawlGroup);
 
   QGroupBox* logGroup = new QGroupBox("Logging", settingsTabContent);
@@ -624,6 +672,8 @@ void MainWindow::setupUi() {
   loadCookieEditor();
 
   m_tabWidget->addTab(settingsTabContent, "⚙ Settings");
+
+  setupDownloadManagerTab();
 
   // --- Log Tab ---
   m_tabWidget->addTab(m_logPanel, "📜 Logs");

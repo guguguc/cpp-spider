@@ -6,6 +6,7 @@
 #include <QGridLayout>
 #include <QPointer>
 #include <QScrollArea>
+#include <QHeaderView>
 #include <QTimer>
 #include <QFileDialog>
 #include <QMessageBox>
@@ -383,11 +384,17 @@ void MainWindow::downloadVideo(const QString& videoUrl, QWidget* parent) {
   if (dialog->exec() != QDialog::Accepted) return;
   QString savePath = dialog->selectedFiles().first();
   if (savePath.isEmpty()) return;
+
+  const QString taskId = registerDownloadTask("video", videoUrl, savePath);
+  updateDownloadTask(taskId, "Queued", 0, "Ready to download");
   
   appendLog(QString("Downloading video to %1...").arg(savePath));
   
-  std::thread([this, videoUrl, savePath]() {
+  std::thread([this, videoUrl, savePath, taskId]() {
     m_activeDownloads++;
+    QMetaObject::invokeMethod(this, [this, taskId]() {
+      updateDownloadTask(taskId, "Running", 10, "Requesting video");
+    }, Qt::QueuedConnection);
     try {
       auto [scheme_host, path] = splitUrl(videoUrl.toStdString());
       httplib::Client cli(scheme_host);
@@ -404,23 +411,42 @@ void MainWindow::downloadVideo(const QString& videoUrl, QWidget* parent) {
       };
       auto res = cli.Get(path, headers);
       if (res && (res->status == 200 || res->status == 206)) {
+        QMetaObject::invokeMethod(this, [this, taskId]() {
+          updateDownloadTask(taskId, "Running", 60, "Writing file");
+        }, Qt::QueuedConnection);
         std::ofstream outfile(savePath.toStdString(), std::ios::binary);
         if (outfile.is_open()) {
           outfile.write(res->body.c_str(), res->body.size());
           outfile.close();
+          const auto savedBytes = static_cast<qulonglong>(res->body.size());
           QMetaObject::invokeMethod(this, "appendLog", Qt::QueuedConnection,
             Q_ARG(QString, QString("Video saved: %1 (%2 bytes)").arg(savePath).arg(res->body.size())));
+          QMetaObject::invokeMethod(this, [this, taskId, savePath, savedBytes]() {
+            finishDownloadTask(taskId, true,
+                               QString("Saved %1 (%2 bytes)").arg(savePath).arg(savedBytes));
+          }, Qt::QueuedConnection);
         } else {
           QMetaObject::invokeMethod(this, "appendLog", Qt::QueuedConnection,
             Q_ARG(QString, QString("Failed to open file: %1").arg(savePath)));
+          QMetaObject::invokeMethod(this, [this, taskId, savePath]() {
+            finishDownloadTask(taskId, false, QString("Cannot open file %1").arg(savePath));
+          }, Qt::QueuedConnection);
         }
       } else {
+        const int statusCode = res ? res->status : -1;
         QMetaObject::invokeMethod(this, "appendLog", Qt::QueuedConnection,
-          Q_ARG(QString, QString("Failed to download video: HTTP %1").arg(res ? res->status : -1)));
+          Q_ARG(QString, QString("Failed to download video: HTTP %1").arg(statusCode)));
+        QMetaObject::invokeMethod(this, [this, taskId, statusCode]() {
+          finishDownloadTask(taskId, false,
+                             QString("HTTP %1").arg(statusCode));
+        }, Qt::QueuedConnection);
       }
     } catch (const std::exception& e) {
       QMetaObject::invokeMethod(this, "appendLog", Qt::QueuedConnection,
         Q_ARG(QString, QString("Error downloading video: %1").arg(e.what())));
+      QMetaObject::invokeMethod(this, [this, taskId, e]() {
+        finishDownloadTask(taskId, false, QString("Exception: %1").arg(e.what()));
+      }, Qt::QueuedConnection);
     }
     m_activeDownloads--;
   }).detach();
@@ -512,12 +538,19 @@ void MainWindow::saveAllPictures(const QList<QString>& picUrls, QWidget* parent)
   QString saveFolderPath = dialog->selectedFiles().first();
   if (saveFolderPath.isEmpty()) return;
 
+  const QString taskId = registerDownloadTask("pictures", "batch", saveFolderPath, picUrls.size());
+  updateDownloadTask(taskId, "Queued", 0, QString("0/%1 item(s)").arg(picUrls.size()));
+
   appendLog(QString("Downloading %1 pictures to %2...").arg(picUrls.size()).arg(saveFolderPath));
   std::string cookies = loadCookies();
   appendLog(QString::fromStdString(fmt::format("Loaded cookies: {} bytes", cookies.size())));
 
-  std::thread([this, picUrls, saveFolderPath, cookies]() {
+  std::thread([this, picUrls, saveFolderPath, cookies, taskId]() {
     int successCount = 0, failureCount = 0;
+    QMetaObject::invokeMethod(this, [this, taskId, picUrls]() {
+      updateDownloadTask(taskId, "Running", 0,
+                         QString("0/%1 item(s)").arg(picUrls.size()));
+    }, Qt::QueuedConnection);
     for (int idx = 0; idx < picUrls.size(); ++idx) {
       try {
         auto [scheme_host, path] = splitUrl(picUrls[idx].toStdString());
@@ -543,10 +576,32 @@ void MainWindow::saveAllPictures(const QList<QString>& picUrls, QWidget* parent)
           } else { failureCount++; }
         } else { failureCount++; }
       } catch (const std::exception& e) { failureCount++; }
+
+      const int done = successCount + failureCount;
+      const int progress = picUrls.isEmpty() ? 100 : (done * 100) / picUrls.size();
+      QMetaObject::invokeMethod(this, [this, taskId, done, picUrls, successCount, failureCount, progress]() {
+        updateDownloadTask(taskId,
+                           "Running",
+                           progress,
+                           QString("%1/%2 item(s), ok=%3 fail=%4")
+                               .arg(done)
+                               .arg(picUrls.size())
+                               .arg(successCount)
+                               .arg(failureCount));
+      }, Qt::QueuedConnection);
+
       std::this_thread::sleep_for(std::chrono::milliseconds(100));
     }
     QMetaObject::invokeMethod(this, "appendLog", Qt::QueuedConnection,
       Q_ARG(QString, QString("Picture download complete: %1 succeeded, %2 failed").arg(successCount).arg(failureCount)));
+    QMetaObject::invokeMethod(this, [this, taskId, successCount, failureCount, picUrls]() {
+      finishDownloadTask(taskId,
+                         failureCount == 0,
+                         QString("Done %1/%2, failed=%3")
+                             .arg(successCount)
+                             .arg(picUrls.size())
+                             .arg(failureCount));
+    }, Qt::QueuedConnection);
   }).detach();
 }
 
@@ -659,4 +714,144 @@ void MainWindow::showAllVideos(uint64_t uid) {
   }
 
   layout->addStretch();
+}
+
+void MainWindow::setupDownloadManagerTab() {
+  QWidget* downloadsTabContent = new QWidget(this);
+  QVBoxLayout* downloadsLayout = new QVBoxLayout(downloadsTabContent);
+  downloadsLayout->setContentsMargins(16, 16, 16, 16);
+  downloadsLayout->setSpacing(10);
+
+  QLabel* title = new QLabel("Download Manager", downloadsTabContent);
+  title->setStyleSheet("font-size: 18px; font-weight: 700;");
+  downloadsLayout->addWidget(title);
+
+  QLabel* hint = new QLabel("Track single video and batch picture downloads.", downloadsTabContent);
+  hint->setStyleSheet("color: #6c7086;");
+  downloadsLayout->addWidget(hint);
+
+  QWidget* actions = new QWidget(downloadsTabContent);
+  QHBoxLayout* actionsLayout = new QHBoxLayout(actions);
+  actionsLayout->setContentsMargins(0, 0, 0, 0);
+  actionsLayout->setSpacing(8);
+
+  QPushButton* clearFinishedBtn = new QPushButton("Clear Finished", actions);
+  connect(clearFinishedBtn, &QPushButton::clicked, [this]() {
+    if (!m_downloadTable) {
+      return;
+    }
+    for (int row = m_downloadTable->rowCount() - 1; row >= 0; --row) {
+      QTableWidgetItem* statusItem = m_downloadTable->item(row, 3);
+      if (!statusItem) {
+        continue;
+      }
+      const QString status = statusItem->text();
+      if (status == "Completed" || status == "Failed") {
+        const QString taskId = m_downloadTable->item(row, 0)->text();
+        m_downloadRowById.remove(taskId);
+        m_downloadTable->removeRow(row);
+      }
+    }
+  });
+  actionsLayout->addWidget(clearFinishedBtn);
+
+  QPushButton* clearAllBtn = new QPushButton("Clear All", actions);
+  connect(clearAllBtn, &QPushButton::clicked, [this]() {
+    if (!m_downloadTable) {
+      return;
+    }
+    m_downloadTable->setRowCount(0);
+    m_downloadRowById.clear();
+  });
+  actionsLayout->addWidget(clearAllBtn);
+
+  actionsLayout->addStretch();
+  downloadsLayout->addWidget(actions);
+
+  m_downloadTable = new QTableWidget(downloadsTabContent);
+  m_downloadTable->setColumnCount(7);
+  m_downloadTable->setHorizontalHeaderLabels({
+      "Task", "Type", "Target", "Status", "Progress", "Detail", "Updated"});
+  m_downloadTable->setEditTriggers(QAbstractItemView::NoEditTriggers);
+  m_downloadTable->setSelectionBehavior(QAbstractItemView::SelectRows);
+  m_downloadTable->setSelectionMode(QAbstractItemView::SingleSelection);
+  m_downloadTable->verticalHeader()->setVisible(false);
+  m_downloadTable->horizontalHeader()->setStretchLastSection(true);
+  m_downloadTable->horizontalHeader()->setSectionResizeMode(0, QHeaderView::ResizeToContents);
+  m_downloadTable->horizontalHeader()->setSectionResizeMode(1, QHeaderView::ResizeToContents);
+  m_downloadTable->horizontalHeader()->setSectionResizeMode(2, QHeaderView::Stretch);
+  m_downloadTable->horizontalHeader()->setSectionResizeMode(3, QHeaderView::ResizeToContents);
+  m_downloadTable->horizontalHeader()->setSectionResizeMode(4, QHeaderView::ResizeToContents);
+  m_downloadTable->horizontalHeader()->setSectionResizeMode(5, QHeaderView::Stretch);
+  m_downloadTable->horizontalHeader()->setSectionResizeMode(6, QHeaderView::ResizeToContents);
+  downloadsLayout->addWidget(m_downloadTable);
+
+  m_tabWidget->addTab(downloadsTabContent, "⬇ Downloads");
+}
+
+QString MainWindow::registerDownloadTask(const QString& type,
+                                         const QString& source,
+                                         const QString& target,
+                                         int total_items) {
+  Q_UNUSED(source);
+
+  const uint64_t seq = ++m_downloadTaskSeq;
+  const QString taskId = QString("DL-%1").arg(seq, 4, 10, QLatin1Char('0'));
+
+  if (!m_downloadTable) {
+    return taskId;
+  }
+
+  const int row = m_downloadTable->rowCount();
+  m_downloadTable->insertRow(row);
+  m_downloadTable->setItem(row, 0, new QTableWidgetItem(taskId));
+  m_downloadTable->setItem(row, 1, new QTableWidgetItem(type));
+  m_downloadTable->setItem(row, 2, new QTableWidgetItem(target));
+  m_downloadTable->setItem(row, 3, new QTableWidgetItem("Queued"));
+  m_downloadTable->setItem(row, 4, new QTableWidgetItem("0%"));
+  m_downloadTable->setItem(row, 5,
+                           new QTableWidgetItem(QString("0/%1 item(s)").arg(std::max(1, total_items))));
+  m_downloadTable->setItem(row, 6,
+                           new QTableWidgetItem(QDateTime::currentDateTime().toString("hh:mm:ss")));
+
+  m_downloadRowById[taskId] = row;
+  return taskId;
+}
+
+void MainWindow::updateDownloadTask(const QString& task_id,
+                                    const QString& status,
+                                    int progress,
+                                    const QString& detail) {
+  if (!m_downloadTable || !m_downloadRowById.contains(task_id)) {
+    return;
+  }
+
+  const int row = m_downloadRowById[task_id];
+  progress = std::max(0, std::min(100, progress));
+
+  if (QTableWidgetItem* statusItem = m_downloadTable->item(row, 3)) {
+    statusItem->setText(status);
+  }
+  if (QTableWidgetItem* progressItem = m_downloadTable->item(row, 4)) {
+    progressItem->setText(QString("%1%").arg(progress));
+  }
+  if (QTableWidgetItem* detailItem = m_downloadTable->item(row, 5)) {
+    detailItem->setText(detail);
+  }
+  if (QTableWidgetItem* updatedItem = m_downloadTable->item(row, 6)) {
+    updatedItem->setText(QDateTime::currentDateTime().toString("hh:mm:ss"));
+  }
+
+  if (m_tabWidget) {
+    int downloadTabIndex = m_tabWidget->indexOf(m_downloadTable->parentWidget());
+    if (downloadTabIndex >= 0 && (status == "Failed" || status == "Completed")) {
+      m_tabWidget->setTabText(downloadTabIndex, QString("⬇ Downloads*"));
+    }
+  }
+}
+
+void MainWindow::finishDownloadTask(const QString& task_id,
+                                    bool success,
+                                    const QString& detail) {
+  updateDownloadTask(task_id, success ? "Completed" : "Failed", success ? 100 : 0, detail);
 }
