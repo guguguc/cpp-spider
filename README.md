@@ -13,6 +13,7 @@ It fetches user profile data from Weibo, draws relationship graphs, collects Wei
   - All pictures view
   - All videos view
   - Crawl health monitor view
+  - Download manager view (task progress for videos/pictures)
   - Settings view (crawler, anti-crawl, logging, cookie editor)
   - Log panel view
 - Interactive graph:
@@ -169,6 +170,14 @@ cmake ..
 make -j
 ```
 
+Helper scripts (from project root):
+
+```bash
+./scripts/build.sh   # configure + build
+./scripts/test.sh    # build + run ctest
+./scripts/start.sh   # run app (auto-build if missing)
+```
+
 Binary output:
 
 ```text
@@ -181,6 +190,21 @@ From project root:
 ```bash
 ./build/cpp-spider
 ```
+
+## Running Tests
+
+This project uses Google Test for automated tests.
+It also includes Qt UI automation tests for main window behavior.
+
+```bash
+mkdir -p build
+cd build
+cmake ..
+cmake --build . -j
+ctest --output-on-failure
+```
+
+If GTest is not available in your environment, CMake will skip test target setup.
 
 ## Configuration Files
 

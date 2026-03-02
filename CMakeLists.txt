@@ -5,8 +5,9 @@ project(cpp-spider)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_AUTOMOC ON)
+include(CTest)
 
-find_package(Qt6 REQUIRED COMPONENTS Widgets Network MultimediaWidgets)
+find_package(Qt6 REQUIRED COMPONENTS Widgets Network MultimediaWidgets Test)
 find_package(OpenSSL REQUIRED)
 
 find_package(spdlog)
@@ -51,3 +52,7 @@ target_include_directories(cpp-spider PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/includ
 target_compile_definitions(cpp-spider PRIVATE CPPHTTPLIB_OPENSSL_SUPPORT)
 
 target_link_libraries(cpp-spider PRIVATE Qt6::Widgets Qt6::Network Qt6::MultimediaWidgets OpenSSL::SSL OpenSSL::Crypto fmt::fmt spdlog::spdlog_header_only spider)
+
+if(BUILD_TESTING)
+  add_subdirectory(tests)
+endif()
